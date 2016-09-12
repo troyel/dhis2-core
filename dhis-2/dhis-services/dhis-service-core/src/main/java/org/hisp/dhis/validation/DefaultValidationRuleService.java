@@ -31,17 +31,22 @@ package org.hisp.dhis.validation;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.hisp.dhis.common.BaseDimensionalItemObject;
 import org.hisp.dhis.common.GenericIdentifiableObjectStore;
 import org.hisp.dhis.commons.filter.FilterUtils;
 import org.hisp.dhis.constant.ConstantService;
 import org.hisp.dhis.dataelement.DataElement;
+import org.hisp.dhis.dataelement.DataElementCategoryCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryOptionCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.dataset.DataSet;
 import org.hisp.dhis.datavalue.DataValue;
 import org.hisp.dhis.datavalue.DataValueService;
+import org.hisp.dhis.expression.Expression;
+import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.i18n.I18nFormat;
+import org.hisp.dhis.i18n.I18nService;
 import org.hisp.dhis.message.MessageService;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.organisationunit.OrganisationUnitService;
@@ -114,6 +119,17 @@ public class DefaultValidationRuleService
         this.dataValueService = dataValueService;
     }
 
+    private ExpressionService expressionService;
+
+    public void setExpressionService( ExpressionService expressionService ) { this.expressionService = expressionService; }
+
+    private ConstantService constantService;
+
+    public void setConstantService( ConstantService constantService )
+    {
+        this.constantService = constantService;
+    }
+
     private DataElementCategoryService categoryService;
 
     public void setCategoryService( DataElementCategoryService categoryService )
@@ -121,11 +137,11 @@ public class DefaultValidationRuleService
         this.categoryService = categoryService;
     }
 
-    private ConstantService constantService;
+    private I18nService i18nService;
 
-    public void setConstantService( ConstantService constantService )
+    public void setI18nService( I18nService service )
     {
-        this.constantService = constantService;
+        i18nService = service;
     }
 
     private MessageService messageService;
@@ -750,4 +766,162 @@ public class DefaultValidationRuleService
     {
         return validationRuleGroupStore.getAllLikeName( name, first, max ) ;
     }
+
+    public String getSQL( ValidationRule rule, Collection<Period> periods, Collection<OrganisationUnit> sources )
+    {
+        if ( rule.getRuleType() == RuleType.VALIDATION )
+        {
+            Expression left = rule.getLeftSide();
+            Expression right = rule.getRightSide();
+            if ( (left.getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) &&
+                 (right.getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) )
+            {
+                Set<BaseDimensionalItemObject> left_inputs = expressionService.getDataInputsInExpression( left.getExpression() );
+                Set<BaseDimensionalItemObject> right_inputs = expressionService.getDataInputsInExpression( right.getExpression() );
+                if ( (left_inputs.size() == 1) && (right_inputs.size() == 1) )
+                {
+                    BaseDimensionalItemObject left_data=getOne(left_inputs);
+                    BaseDimensionalItemObject right_data=getOne(right_inputs);
+                    if (( left_data instanceof DataElement ) &&
+                        ( right_data instanceof DataElement ))
+                    {
+                        DataElement right_de=(DataElement) right_data;
+                        String left_sql = getDataInputExpression( left_data );
+                        String right_sql = getDataInputExpression( right_data );
+                        String comparator = getComparator( rule );
+
+			System.out.println("left_sql="+left_sql);
+			System.out.println("right_sql="+right_sql);
+			System.out.println("comparator="+comparator);
+
+                        if ( ( left_sql == null ) || ( right_sql == null ) || (comparator == null ))
+                            return null;
+                        else return "SELECT periodid, sourceid, attributeoptioncomboid, " +
+                            left_sql + " as left_side, " +
+                            right_sql + " as right_side, " +
+                            " '" + rule.getUid() + "' AS rule_uid " +
+                            " from datavalue "+
+                            " where dataelementid in (" + left_data.getId() + "," + right_data.getId() + ") " +
+                            getSourcesClause( sources ) + getPeriodsClause( periods ) +
+                            " group by periodid, sourceid, attributeoptioncomboid " +
+                            " having " + left_sql + " " + comparator + " " + right_sql + " ";
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String getDataInputExpression( BaseDimensionalItemObject input )
+    {
+        if ( input instanceof DataElement )
+        {
+            DataElement de = (DataElement) input;
+            DataElementCategoryCombo cc = de.getCategoryCombo();
+            DataElementCategoryCombo dcc = categoryService.getDefaultDataElementCategoryCombo();
+            if ( (cc == null) || (cc == dcc) )
+            {
+                return "sum(case when dataelementid = " + de.getId() + " then " +
+                    "cast(value as double precision) else null end)";
+            }
+            else
+            {
+                return "sum(case when dataelementid = " + de.getId() +
+                    " and categoryoptioncomboid = "+  cc.getId() + " then " +
+                    " cast(value as double precision) else null end)";
+            }
+        }
+        else if ( input instanceof DataElementOperand )
+        {
+            DataElementOperand deo = (DataElementOperand) input;
+            DataElement de = deo.getDataElement();
+            DataElementCategoryOptionCombo coc = deo.getCategoryOptionCombo();
+            return "(case when dataelementid = " + de.getId() +
+                " and categoryoptioncomboid = " + coc.getId() +
+                " then cast(value as double precision) else null end)";
+        }
+        else return null;
+
+    }
+
+    private static String getComparator( ValidationRule rule )
+    {
+        // We reverse the sense of the operator since we're looking for validations
+        switch ( rule.getOperator() )
+        {
+            case equal_to:
+                return " != ";
+            case greater_than:
+                return " <= ";
+            case greater_than_or_equal_to:
+                return " < ";
+            case less_than:
+                return " >= ";
+            case less_than_or_equal_to:
+                return " > ";
+            case not_equal_to:
+                return " = ";
+            default:
+                return null;
+        }
+    }
+
+    private static BaseDimensionalItemObject getOne( Set<BaseDimensionalItemObject> set )
+    {
+        for ( BaseDimensionalItemObject bdio: set )
+        {
+            return bdio;
+        }
+
+        return null;
+    }
+
+    private static String getSourcesClause( Collection<OrganisationUnit> sources )
+    {
+        if ( ( sources == null ) || ( sources.size() == 0) )
+            return " ";
+        else {
+            String clause = " AND sourceid IN ( "; boolean initial=true;
+            for ( OrganisationUnit source: sources )
+            {
+                if (initial)
+                {
+                    initial = false;
+                    clause = clause + " " + source.getId();
+                }
+                else
+                {
+                    clause = clause + ", " + source.getId();
+                }
+
+            }
+            return clause +" ) ";
+        }
+    }
+
+    private static String getPeriodsClause( Collection<Period> periods )
+    {
+        if ( ( periods == null ) || ( periods.size() == 0) )
+            return " ";
+        else {
+            String clause = " AND periodid IN ( "; boolean initial=true;
+            for ( Period p: periods )
+            {
+                if (initial)
+                {
+                    initial = false;
+                    clause = clause + " " + p.getId();
+                }
+                else
+                {
+                    clause = clause + ", " + p.getId();
+                }
+
+            }
+            return clause +" ) ";
+        }
+    }
 }
+
+

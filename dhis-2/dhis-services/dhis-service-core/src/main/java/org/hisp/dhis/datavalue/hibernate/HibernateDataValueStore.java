@@ -657,4 +657,11 @@ public class HibernateDataValueStore
         
         return ids;
     }
+
+
+    public SqlRowSet rawQuery( String sql )
+    {
+        return jdbcTemplate.queryForRowSet( sql );
+    }
+
 }

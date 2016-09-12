@@ -430,9 +430,34 @@ public class DefaultExpressionService
     public Set<BaseDimensionalItemObject> getDataInputsInExpression( String expression )
     {
         Set<BaseDimensionalItemObject> results=new HashSet<BaseDimensionalItemObject>();
+        final Matcher matcher = OPERAND_PATTERN.matcher( expression );
 
-        results.addAll( getDataElementsInExpression( expression ) );
-        results.addAll( getOperandsInExpression( expression ) );
+        while ( matcher.find() )
+        {
+            String dataElementUid = matcher.group( 1 );
+            String catOptionComboUid = matcher.group( 2 );
+            if (( catOptionComboUid == null ) || ( catOptionComboUid.isEmpty() ))
+            {
+                final DataElement dataElement = dataElementService.getDataElement( dataElementUid );
+                if ( dataElement != null )
+                {
+                    results.add( dataElement );
+                }
+            }
+            else
+            {
+                final DataElement dataElement = dataElementService.getDataElement( dataElementUid );
+                final DataElementCategoryOptionCombo coc = categoryService.getDataElementCategoryOptionCombo( catOptionComboUid );
+                if ( (dataElement == null) || (coc == null) ) continue;
+                else
+                {
+                    DataElementOperand deo = new DataElementOperand( dataElement );
+                    deo.setCategoryOptionCombo( coc );
+                    results.add( deo );
+                }
+            }
+
+        }
 
         return results;
     }

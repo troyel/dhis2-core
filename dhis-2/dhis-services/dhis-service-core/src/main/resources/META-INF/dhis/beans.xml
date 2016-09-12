@@ -888,6 +888,8 @@
     <property name="organisationUnitService" ref="org.hisp.dhis.organisationunit.OrganisationUnitService" />
     <property name="currentUserService" ref="org.hisp.dhis.user.CurrentUserService" />
     <property name="systemSettingManager" ref="org.hisp.dhis.setting.SystemSettingManager" />
+    <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
+    <property name="i18nService" ref="org.hisp.dhis.i18n.I18nService" />
   </bean>
   
   <bean id="validationTask" class="org.hisp.dhis.validation.DataValidationTask" scope="prototype" />

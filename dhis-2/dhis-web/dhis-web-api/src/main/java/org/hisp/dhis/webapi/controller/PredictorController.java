@@ -62,7 +62,7 @@ public class PredictorController
 {
     @Autowired
     private PredictorService predictorService;
-
+    
     @Autowired
     private WebMessageService webMessageService;
 
@@ -71,42 +71,42 @@ public class PredictorController
 
     @RequestMapping( value = "/{uid}/run", method = { RequestMethod.POST, RequestMethod.PUT } )
     @PreAuthorize( "hasRole('ALL') or hasRole('F_PERFORM_MAINTENANCE')" )
-    public void runPredictor(
-        @PathVariable( "uid" ) String uid,
-        @RequestParam Date startDate,
-        @RequestParam Date endDate,
-        TranslateParams translateParams,
+    public void runPredictor (
+        @PathVariable( "uid" ) String pvUid,
+        @RequestParam Date periodStart,
+        @RequestParam Date periodEnd,
+        TranslateParams translateParams, 
         HttpServletRequest request, HttpServletResponse response ) throws Exception
     {
-        Predictor predictor = predictorService.getPredictor( uid );
+        Predictor predictor = predictorService.getPredictor( pvUid );
 
-        int count = predictorService.predict( predictor, startDate, endDate );
+        int count = predictorService.predict( predictor, periodStart, periodEnd );
 
         webMessageService.send( WebMessageUtils.ok( "Generated " + count + " predictions" ), response, request );
     }
 
-    @RequestMapping( value = "/{uid}/dryRun", method = { RequestMethod.POST, RequestMethod.PUT } )
+    @RequestMapping( value = "/{uid}/test", method = { RequestMethod.POST, RequestMethod.PUT } )
     @PreAuthorize( "hasRole('ALL') or hasRole('F_PERFORM_MAINTENANCE')" )
-    public void testPredictor(
-        @PathVariable( "uid" ) String uid,
-        @RequestParam( required = false ) String sourceId,
+    public void testPredictor (
+        @PathVariable( "uid" ) String pvUid,
+        @RequestParam(required=false) String sourceId,
         @RequestParam Date startDate,
-        @RequestParam( required = false ) Date endDate,
+        @RequestParam(required=false) Date endDate,
         TranslateParams translateParams,
         HttpServletRequest request, HttpServletResponse response ) throws Exception
     {
-        Predictor predictor = predictorService.getPredictor( uid );
-        Collection<OrganisationUnit> sources = (sourceId == null) ? (null) :
+        Predictor predictor = predictorService.getPredictor( pvUid );
+        Collection<OrganisationUnit> sources= (sourceId == null) ? (null) :
             Lists.newArrayList( organisationUnitService.getOrganisationUnit( sourceId ) );
 
-        Collection<DataValue> results = (sources == null) ?
-            (predictorService.getPredictions( predictor, startDate, endDate )) :
-            (predictorService.getPredictions( predictor, sources, startDate, endDate ));
+        Collection<DataValue> results = ( sources == null ) ?
+            ( predictorService.getPredictions( predictor, startDate, endDate ) ) :
+            ( predictorService.getPredictions( predictor, sources, startDate, endDate ) );
 
         webMessageService.send( WebMessageUtils.ok( "Generated " + results.size() + " predictions" ), response, request );
     }
 
-    @RequestMapping( value = "/run", method = { RequestMethod.POST, RequestMethod.PUT } )
+    @RequestMapping( value = "/run", method = { RequestMethod.POST, RequestMethod.PUT })
     @PreAuthorize( "hasRole('ALL') or hasRole('F_PERFORM_MAINTENANCE')" )
     public void runPredictors(
         @RequestParam Date startDate,

@@ -39,17 +39,22 @@ import org.hisp.dhis.dataelement.DataElement;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.datavalue.DataValueService;
+import org.hisp.dhis.datavalue.DataValueStore;
+import org.hisp.dhis.datavalue.hibernate.HibernateDataValueStore;
 import org.hisp.dhis.expression.Expression;
 import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.expression.Operator;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
+import org.hisp.dhis.organisationunit.OrganisationUnitService;
 import org.hisp.dhis.period.Period;
 import org.hisp.dhis.period.PeriodService;
 import org.hisp.dhis.period.PeriodType;
 import org.hisp.dhis.system.util.MathUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.support.rowset.SqlRowSet;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
@@ -81,10 +86,19 @@ public class DataValidationTask
     private PeriodService periodService;
 
     @Autowired
+    private OrganisationUnitService organisationUnitService;
+
+    @Autowired
+    private DataValueStore dataValueStore;
+
+    @Autowired
     private DataValueService dataValueService;
 
     @Autowired
     private DataElementCategoryService categoryService;
+
+    @Autowired
+    private ValidationRuleService validationService;
 
     private OrganisationUnitExtended sourceX;
 
@@ -125,106 +139,162 @@ public class DataValidationTask
             {
                 Collection<DataElement> sourceDataElements = periodTypeX.getSourceDataElements()
                     .get( sourceX.getSource() );
-                Set<ValidationRule> rules = getRulesBySourceAndPeriodType( sourceX, periodTypeX, sourceDataElements );
-                expressionService.explodeValidationRuleExpressions( rules );
+                Set<ValidationRule> applicableRules = getRulesBySourceAndPeriodType( sourceX, periodTypeX, sourceDataElements );
+                expressionService.explodeValidationRuleExpressions( applicableRules );
 
-                if ( !rules.isEmpty() )
+                if ( applicableRules.isEmpty() ) continue;
+
+                Set<ValidationRule> rules = new HashSet<ValidationRule>();
+                Set<ValidationRule> simpleRules = new HashSet<ValidationRule>();
+                Collection<OrganisationUnit> allSources = new ArrayList<OrganisationUnit>();
+
+                allSources.add( sourceX.getSource() );
+                allSources.addAll( sourceX.getChildren() );
+
+                if ( dataValueStore instanceof HibernateDataValueStore )
                 {
-                    Set<DataElement> recursiveCurrentDataElements = getRecursiveCurrentDataElements( rules );
-
-                    for ( Period period : periodTypeX.getPeriods() )
+                    for ( ValidationRule vrule : applicableRules )
                     {
-                        MapMap<Integer, DataElementOperand, Date> lastUpdatedMap = new MapMap<>();
-                        SetMap<Integer, DataElementOperand> incompleteValuesMap = new SetMap<>();
-                        MapMap<Integer, DataElementOperand, Double> currentValueMap = getValueMap( periodTypeX,
-                            periodTypeX.getDataElements(), sourceDataElements, recursiveCurrentDataElements,
-                            periodTypeX.getAllowedPeriodTypes(), period, sourceX.getSource(), lastUpdatedMap,
-                            incompleteValuesMap );
-
-                        log.trace( "Source " + sourceX.getSource().getName() + " [" + period.getStartDate() + " - "
-                            + period.getEndDate() + "]" + " currentValueMap[" + currentValueMap.size() + "]" );
-
-                        for ( ValidationRule rule : rules )
+                        if ( vrule.getRuleType() == RuleType.SURVEILLANCE )
                         {
-                            if ( evaluateValidationCheck( currentValueMap, lastUpdatedMap, rule ) )
+                            rules.add( vrule );
+                        }
+                        else if ( (vrule.getLeftSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) &&
+                            (vrule.getRightSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) )
+                        {
+                            simpleRules.add( vrule );
+                        }
+                        else
+                        {
+                            rules.add( vrule );
+                        }
+                    }
+                }
+                else
+                {
+                    rules = applicableRules;
+                }
+
+                if ( dataValueStore instanceof HibernateDataValueStore )
+                {
+                    HibernateDataValueStore hs = (HibernateDataValueStore) dataValueStore;
+                    Collection<ValidationResult> vresults = context.getValidationResults();
+                    for ( ValidationRule rule: simpleRules )
+                    {
+                        String sql = validationService.getSQL( rule, periodTypeX.getPeriods(), allSources );
+                        if ( sql == null )
+                        {
+                            rules.add( rule );
+                            continue;
+                        }
+			System.out.println("sql="+sql);
+                        SqlRowSet results = hs.rawQuery( sql );
+                        while ( results.next() )
+                        {
+                            ValidationResult vr = new ValidationResult ( periodService.getPeriod( results.getInt( 1 ) ),
+                                organisationUnitService.getOrganisationUnit( results.getInt( 2 )),
+                                categoryService.getDataElementCategoryOptionCombo( results.getInt( 3 ) ),
+                                rule, roundSignificant( results.getDouble( 4 ) ), roundSignificant ( results.getDouble( 5 ) ));
+                            vresults.add( vr );
+
+                        }
+                    }
+                }
+
+                Set<DataElement> recursiveCurrentDataElements = getRecursiveCurrentDataElements( rules );
+
+                for ( Period period : periodTypeX.getPeriods() )
+                {
+                    MapMap<Integer, DataElementOperand, Date> lastUpdatedMap = new MapMap<>();
+                    SetMap<Integer, DataElementOperand> incompleteValuesMap = new SetMap<>();
+                    MapMap<Integer, DataElementOperand, Double> currentValueMap = getValueMap( periodTypeX,
+                        periodTypeX.getDataElements(), sourceDataElements, recursiveCurrentDataElements,
+                        periodTypeX.getAllowedPeriodTypes(), period, sourceX.getSource(), lastUpdatedMap,
+                        incompleteValuesMap );
+
+                    log.trace( "Source " + sourceX.getSource().getName() + " [" + period.getStartDate() + " - "
+                        + period.getEndDate() + "]" + " currentValueMap[" + currentValueMap.size() + "]" );
+
+                    for ( ValidationRule rule : rules )
+                    {
+                        if ( evaluateValidationCheck( currentValueMap, lastUpdatedMap, rule ) )
+                        {
+                            int n_years = rule.getAnnualSampleCount() == null ? 0 : rule.getAnnualSampleCount();
+                            int window = rule.getSequentialSampleCount() == null ? 0
+                                : rule.getSequentialSampleCount();
+                            int skip = rule.getSequentialSkipCount() == null ? 0
+                                : rule.getSequentialSkipCount();
+                            Collection<PeriodType> periodTypes = context.getRuleXMap().get( rule )
+                                .getAllowedPastPeriodTypes();
+
+                            log.debug( "Rule " + rule.getName() + " @" + period.getDisplayShortName() + " & "
+                                + sourceX.getSource() + " window=" + window + ", years=" + n_years );
+                            Map<Integer, Double> leftSideValues = getRuleExpressionValueMap
+                                ( rule.getLeftSide(), rule.getSampleSkipTest(),
+                                    currentValueMap, incompleteValuesMap, sourceX.getSource(),
+                                    period, window, n_years, skip,
+                                    periodTypeX, periodTypes, lastUpdatedMap, sourceDataElements );
+
+                            if ( !leftSideValues.isEmpty()
+                                || Operator.compulsory_pair.equals( rule.getOperator() )
+                                || Operator.exclusive_pair.equals( rule.getOperator() ) )
                             {
-                                int n_years = rule.getAnnualSampleCount() == null ? 0 : rule.getAnnualSampleCount();
-                                int window = rule.getSequentialSampleCount() == null ? 0
-                                    : rule.getSequentialSampleCount();
-                                int skip = rule.getSequentialSkipCount() == null ? 0
-                                    : rule.getSequentialSkipCount();
-                                Collection<PeriodType> periodTypes = context.getRuleXMap().get( rule )
-                                    .getAllowedPastPeriodTypes();
-
-                                log.debug( "Rule " + rule.getName() + " @" + period.getDisplayShortName() + " & "
-                                    + sourceX.getSource() + " window=" + window + ", years=" + n_years );
-                                Map<Integer, Double> leftSideValues = getRuleExpressionValueMap
-                                    ( rule.getLeftSide(), rule.getSampleSkipTest(),
+                                Map<Integer, Double> rightSideValues = getRuleExpressionValueMap
+                                    ( rule.getRightSide(), rule.getSampleSkipTest(),
                                         currentValueMap, incompleteValuesMap, sourceX.getSource(),
-                                        period, window, n_years, skip,
-                                        periodTypeX, periodTypes, lastUpdatedMap, sourceDataElements );
+                                        period, window, n_years, skip, periodTypeX, periodTypes, lastUpdatedMap,
+                                        sourceDataElements );
 
-                                if ( !leftSideValues.isEmpty()
+                                if ( !rightSideValues.isEmpty()
                                     || Operator.compulsory_pair.equals( rule.getOperator() )
-                                    || Operator.exclusive_pair.equals( rule.getOperator() ) )
+                                    || Operator.compulsory_pair.equals( rule.getOperator() ) )
                                 {
-                                    Map<Integer, Double> rightSideValues = getRuleExpressionValueMap
-                                        ( rule.getRightSide(), rule.getSampleSkipTest(),
-                                            currentValueMap, incompleteValuesMap, sourceX.getSource(),
-                                            period, window, n_years, skip, periodTypeX, periodTypes, lastUpdatedMap,
-                                            sourceDataElements );
+                                    Set<Integer> attributeOptionCombos = leftSideValues.keySet();
 
-                                    if ( !rightSideValues.isEmpty()
-                                        || Operator.compulsory_pair.equals( rule.getOperator() )
-                                        || Operator.exclusive_pair.equals( rule.getOperator() ) )
+                                    if ( Operator.compulsory_pair.equals( rule.getOperator() ) ||
+                                        Operator.exclusive_pair.equals( rule.getOperator() ) )
                                     {
-                                        Set<Integer> attributeOptionCombos = leftSideValues.keySet();
+                                        attributeOptionCombos = new HashSet<>( attributeOptionCombos );
+                                        attributeOptionCombos.addAll( rightSideValues.keySet() );
+                                    }
 
-                                        if ( Operator.compulsory_pair.equals( rule.getOperator() ) ||
-                                            Operator.exclusive_pair.equals( rule.getOperator() ) )
+                                    for ( int optionCombo : attributeOptionCombos )
+                                    {
+                                        Double leftSide = leftSideValues.get( optionCombo );
+                                        Double rightSide = rightSideValues.get( optionCombo );
+                                        boolean violation = false;
+
+                                        if ( Operator.compulsory_pair.equals( rule.getOperator() ) )
                                         {
-                                            attributeOptionCombos = new HashSet<>( attributeOptionCombos );
-                                            attributeOptionCombos.addAll( rightSideValues.keySet() );
+                                            violation = (leftSide != null && rightSide == null)
+                                                || (leftSide == null && rightSide != null);
+                                        }
+                                        else if ( Operator.exclusive_pair.equals( rule.getOperator() ) )
+                                        {
+                                            violation = (leftSide != null && rightSide != null);
+                                        }
+                                        else if ( leftSide != null && rightSide != null )
+                                        {
+                                            violation = !expressionIsTrue( leftSide, rule.getOperator(),
+                                                rightSide );
                                         }
 
-                                        for ( int optionCombo : attributeOptionCombos )
+                                        if ( violation )
                                         {
-                                            Double leftSide = leftSideValues.get( optionCombo );
-                                            Double rightSide = rightSideValues.get( optionCombo );
-                                            boolean violation = false;
-
-                                            if ( Operator.compulsory_pair.equals( rule.getOperator() ) )
-                                            {
-                                                violation = (leftSide != null && rightSide == null)
-                                                    || (leftSide == null && rightSide != null);
-                                            }
-                                            else if ( Operator.exclusive_pair.equals( rule.getOperator() ) )
-                                            {
-                                                violation = (leftSide != null && rightSide != null);
-                                            }
-                                            else if ( leftSide != null && rightSide != null )
-                                            {
-                                                violation = !expressionIsTrue( leftSide, rule.getOperator(),
-                                                    rightSide );
-                                            }
-
-                                            if ( violation )
-                                            {
-                                                context.getValidationResults()
-                                                    .add( new ValidationResult( period, sourceX.getSource(),
-                                                        categoryService.getDataElementCategoryOptionCombo( optionCombo ),
-                                                        rule, roundSignificant( zeroIfNull( leftSide ) ),
-                                                        roundSignificant( zeroIfNull( rightSide ) ) ) );
-                                            }
-
-                                            log.debug( "Evaluated " + rule.getName() + ", combo id " + optionCombo
-                                                + ": " + (violation ? "violation" : "OK") + " "
-                                                + (leftSide == null ? "(null)" : leftSide.toString()) + " "
-                                                + rule.getOperator() + " "
-                                                + (rightSide == null ? "(null)" : rightSide.toString()) + " ("
-                                                + context.getValidationResults().size() + " results)" );
-
+                                            context.getValidationResults()
+                                                .add( new ValidationResult( period, sourceX.getSource(),
+                                                    categoryService.getDataElementCategoryOptionCombo( optionCombo ),
+                                                    rule, roundSignificant( zeroIfNull( leftSide ) ),
+                                                    roundSignificant( zeroIfNull( rightSide ) ) ) );
                                         }
+
+                                        log.debug( "Evaluated " + rule.getName() + ", combo id " + optionCombo
+                                            + ": " + (violation ? "violation" : "OK") + " "
+                                            + (leftSide == null ? "(null)" : leftSide.toString()) + " "
+                                            + rule.getOperator() + " "
+                                            + (rightSide == null ? "(null)" : rightSide.toString()) + " ("
+                                            + context.getValidationResults().size() + " results)" );
+
                                     }
                                 }
                             }

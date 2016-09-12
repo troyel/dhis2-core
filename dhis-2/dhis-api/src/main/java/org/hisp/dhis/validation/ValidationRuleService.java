@@ -264,4 +264,6 @@ public interface ValidationRuleService
 
     int getValidationRuleGroupCountByName( String name );
 
+    public String getSQL( ValidationRule rule, Collection<Period> periods, Collection<OrganisationUnit> sources );
+
 }
