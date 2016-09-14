@@ -28,26 +28,11 @@ package org.hisp.dhis.webapi.controller.legend;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import org.hisp.dhis.dxf2.metadata.MetadataImportParams;
-import org.hisp.dhis.dxf2.webmessage.WebMessageException;
-import org.hisp.dhis.legend.Legend;
-import org.hisp.dhis.legend.LegendService;
 import org.hisp.dhis.legend.LegendSet;
 import org.hisp.dhis.schema.descriptors.LegendSetSchemaDescriptor;
 import org.hisp.dhis.webapi.controller.AbstractCrudController;
-import org.hisp.dhis.webapi.utils.WebMessageUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.util.Iterator;
 
 /**
  * @author Morten Olav Hansen <mortenoh@gmail.com>
@@ -57,80 +42,4 @@ import java.util.Iterator;
 public class LegendSetController
     extends AbstractCrudController<LegendSet>
 {
-    @Autowired
-    private LegendService legendService;
-
-    @Override
-    @RequestMapping( method = RequestMethod.POST, consumes = "application/json" )
-    @PreAuthorize( "hasRole('F_GIS_ADMIN') or hasRole('F_LEGEND_SET_ADD') or hasRole('ALL')" )
-    @ResponseStatus( HttpStatus.CREATED )
-    public void postJsonObject( HttpServletRequest request, HttpServletResponse response ) throws Exception
-    {
-        LegendSet legendSet = renderService.fromJson( request.getInputStream(), LegendSet.class );
-        legendSet.getTranslations().clear();
-        legendSet.getLegends().forEach( legendService::addLegend );
-
-        legendService.addLegendSet( legendSet );
-
-        response.addHeader( "Location", LegendSetSchemaDescriptor.API_ENDPOINT + "/" + legendSet.getUid() );
-        webMessageService.send( WebMessageUtils.created( "Legend set created" ), response, request );
-    }
-
-    @Override
-    @RequestMapping( value = "/{uid}", method = RequestMethod.PUT, consumes = "application/json" )
-    @PreAuthorize( "hasRole('F_GIS_ADMIN') or hasRole('F_LEGEND_SET_ADD') or hasRole('ALL')" )
-    @ResponseStatus( HttpStatus.NO_CONTENT )
-    public void putJsonObject( @PathVariable String uid, HttpServletRequest request, HttpServletResponse response ) throws Exception
-    {
-        LegendSet legendSet = legendService.getLegendSet( uid );
-
-        if ( legendSet == null )
-        {
-            throw new WebMessageException( WebMessageUtils.notFound( "Legend set does not exist: " + uid ) );
-        }
-
-        MetadataImportParams params = importService.getParamsFromMap( contextService.getParameterValuesMap() );
-
-        Iterator<Legend> legends = legendSet.getLegends().iterator();
-
-        while ( legends.hasNext() )
-        {
-            Legend legend = legends.next();
-            legends.remove();
-            legendService.deleteLegend( legend );
-        }
-
-        LegendSet newLegendSet = renderService.fromJson( request.getInputStream(), LegendSet.class );
-        newLegendSet.setTranslations( legendSet.getTranslations() );
-        newLegendSet.getLegends().forEach( legendService::addLegend );
-
-        legendSet.mergeWith( newLegendSet, params.getMergeMode() );
-
-        legendService.updateLegendSet( legendSet );
-    }
-
-    @Override
-    @RequestMapping( value = "/{uid}", method = RequestMethod.DELETE )
-    @PreAuthorize( "hasRole('F_GIS_ADMIN') or hasRole('F_LEGEND_SET_DELETE')or hasRole('ALL')" )
-    @ResponseStatus( HttpStatus.NO_CONTENT )
-    public void deleteObject( @PathVariable String uid, HttpServletRequest request, HttpServletResponse response ) throws Exception
-    {
-        LegendSet legendSet = legendService.getLegendSet( uid );
-
-        if ( legendSet == null )
-        {
-            throw new WebMessageException( WebMessageUtils.notFound( "Legend set does not exist: " + uid ) );
-        }
-
-        Iterator<Legend> legends = legendSet.getLegends().iterator();
-
-        while ( legends.hasNext() )
-        {
-            Legend legend = legends.next();
-            legends.remove();
-            legendService.deleteLegend( legend );
-        }
-
-        legendService.deleteLegendSet( legendSet );
-    }
 }
