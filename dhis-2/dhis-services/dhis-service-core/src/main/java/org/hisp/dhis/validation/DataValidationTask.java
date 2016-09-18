@@ -135,7 +135,8 @@ public class DataValidationTask
         if ( context.getValidationResults().size() < (ValidationRunType.INTERACTIVE == context.getRunType()
             ? ValidationRuleService.MAX_INTERACTIVE_ALERTS : ValidationRuleService.MAX_SCHEDULED_ALERTS) )
         {
-            for ( PeriodTypeExtended periodTypeX : context.getPeriodTypeExtendedMap().values() )
+            Collection<PeriodTypeExtended> xPeriodTypes = context.getPeriodTypeExtendedMap().values();
+            for ( PeriodTypeExtended periodTypeX : xPeriodTypes )
             {
                 Collection<DataElement> sourceDataElements = periodTypeX.getSourceDataElements()
                     .get( sourceX.getSource() );
@@ -187,7 +188,7 @@ public class DataValidationTask
                             rules.add( rule );
                             continue;
                         }
-			System.out.println("sql="+sql);
+			// System.out.println("sql="+sql);
                         SqlRowSet results = hs.rawQuery( sql );
                         while ( results.next() )
                         {
@@ -195,6 +196,12 @@ public class DataValidationTask
                                 organisationUnitService.getOrganisationUnit( results.getInt( 2 )),
                                 categoryService.getDataElementCategoryOptionCombo( results.getInt( 3 ) ),
                                 rule, roundSignificant( results.getDouble( 4 ) ), roundSignificant ( results.getDouble( 5 ) ));
+                            System.out.println("Violation "+rule.getUid()+" at "+
+                                    organisationUnitService.getOrganisationUnit( results.getInt( 2 )).getName() +
+                                    " during " + periodService.getPeriod( results.getInt( 1 ) ).getIsoDate() +
+                                " ( " + rule.getLeftSide().getExpression()+" "+
+                                    rule.getOperator().getMathematicalOperator() + " " +
+                                    rule.getRightSide().getExpression()+" )");
                             vresults.add( vr );
 
                         }
