@@ -774,17 +774,18 @@ public class DefaultValidationRuleService
                 {
                     BaseDimensionalItemObject left_data=getOne(left_inputs);
                     BaseDimensionalItemObject right_data=getOne(right_inputs);
-                    if (( left_data instanceof DataElement ) &&
-                        ( right_data instanceof DataElement ))
+                    if ( (( left_data instanceof DataElement ) ||
+                            ( left_data instanceof DataElementOperand )) &&
+                            (( right_data instanceof DataElement ) ||
+                                    ( right_data instanceof DataElementOperand )))
                     {
-                        DataElement right_de=(DataElement) right_data;
                         String left_sql = getDataInputExpression( left_data );
                         String right_sql = getDataInputExpression( right_data );
                         String comparator = getComparator( rule );
 
-			System.out.println("left_sql="+left_sql);
-			System.out.println("right_sql="+right_sql);
-			System.out.println("comparator="+comparator);
+//			System.out.println("left_sql="+left_sql);
+//			System.out.println("right_sql="+right_sql);
+//			System.out.println("comparator="+comparator);
 
                         if ( ( left_sql == null ) || ( right_sql == null ) || (comparator == null ))
                             return null;
@@ -793,9 +794,9 @@ public class DefaultValidationRuleService
                             right_sql + " as right_side, " +
                             " '" + rule.getUid() + "' AS rule_uid " +
                             " from datavalue "+
-                            " where dataelementid in (" + left_data.getId() + "," + right_data.getId() + ") " +
+                            " where dataelementid in (" + elementId(left_data) + "," + elementId(right_data) + ") " +
                             getSourcesClause( sources ) + getPeriodsClause( periods ) +
-                            " group by periodid, sourceid, attributeoptioncomboid " +
+                            " group by periodid, sourceid, attributeoptioncomboid, dataelementid " +
                             " having " + left_sql + " " + comparator + " " + right_sql + " ";
                     }
                 }
@@ -805,7 +806,22 @@ public class DefaultValidationRuleService
         return null;
     }
 
-    private String getDataInputExpression( BaseDimensionalItemObject input )
+    private int elementId( BaseDimensionalItemObject input ) {
+        if (input instanceof DataElement)
+        {
+            DataElement de = (DataElement) input;
+            return de.getId();
+        }
+        else if ( input instanceof DataElementOperand )
+        {
+            DataElementOperand deo = (DataElementOperand) input;
+            return deo.getDataElement().getId();
+        }
+        else return 0;
+    }
+
+    private String getDataInputExpression
+      ( BaseDimensionalItemObject input )
     {
         if ( input instanceof DataElement )
         {
@@ -829,7 +845,7 @@ public class DefaultValidationRuleService
             DataElementOperand deo = (DataElementOperand) input;
             DataElement de = deo.getDataElement();
             DataElementCategoryOptionCombo coc = deo.getCategoryOptionCombo();
-            return "(case when dataelementid = " + de.getId() +
+            return "sum(case when dataelementid = " + de.getId() +
                 " and categoryoptioncomboid = " + coc.getId() +
                 " then cast(value as double precision) else null end)";
         }
