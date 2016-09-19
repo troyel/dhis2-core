@@ -28,14 +28,29 @@ package org.hisp.dhis.validation;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import java.util.Collection;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import org.hisp.dhis.common.ListMap;
+import org.hisp.dhis.common.SetMap;
+import org.hisp.dhis.dataelement.DataElement;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
+import org.hisp.dhis.datavalue.DataValueService;
+import org.hisp.dhis.datavalue.DataValueStore;
+import org.hisp.dhis.datavalue.hibernate.HibernateDataValueStore;
+import org.hisp.dhis.expression.ExpressionService;
+import org.hisp.dhis.organisationunit.OrganisationUnit;
+import org.hisp.dhis.organisationunit.OrganisationUnitService;
+import org.hisp.dhis.period.Period;
+import org.hisp.dhis.period.PeriodService;
 import org.hisp.dhis.system.util.SystemUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.jdbc.support.rowset.SqlRowSet;
+
+import static org.hisp.dhis.system.util.MathUtils.roundSignificant;
 
 /**
  * Evaluates validation rules.
@@ -44,6 +59,28 @@ import org.springframework.context.ApplicationContext;
  */
 public class Validator
 {
+
+    @Autowired
+    private static ExpressionService expressionService;
+
+    @Autowired
+    private static PeriodService periodService;
+
+    @Autowired
+    private static OrganisationUnitService organisationUnitService;
+
+    @Autowired
+    private static DataValueStore dataValueStore;
+
+    @Autowired
+    private static DataValueService dataValueService;
+
+    @Autowired
+    private static DataElementCategoryService categoryService;
+
+    @Autowired
+    private static ValidationRuleService validationService;
+
     /**
      * Evaluates validation rules for a collection of organisation units. This
      * method breaks the job down by organisation unit. It assigns the
@@ -57,7 +94,88 @@ public class Validator
     {
         DataElementCategoryService categoryService = (DataElementCategoryService) 
             applicationContext.getBean( DataElementCategoryService.class );
-                
+        Collection<PeriodTypeExtended> periodTypes = context.getPeriodTypeExtendedMap().values();
+        Collection<OrganisationUnitExtended> sources = context.getSourceXs();
+        Set<ValidationRule> applicableRules = new HashSet<ValidationRule>();
+        Set<ValidationRule> simpleRules = new HashSet<ValidationRule>();
+        Set<ValidationRule> rulesRun = context.getRulesRun();
+        Map<OrganisationUnitExtended,Set<ValidationRule>> ruleMap =
+                new Hashtable<OrganisationUnitExtended,Set<ValidationRule>>();
+        SetMap<ValidationRule,Period> periodMap = new SetMap<ValidationRule,Period>();
+        SetMap<ValidationRule,OrganisationUnit> sourceMap =
+                new SetMap<ValidationRule,OrganisationUnit>();
+        for ( OrganisationUnitExtended source: sources ) {
+            Set<ValidationRule> sourceRules = new HashSet<ValidationRule>();
+            for ( PeriodTypeExtended periodType: periodTypes )
+            {
+                Collection<DataElement> sourceDataElements =
+                        periodType.getSourceDataElements().get( source.getSource() );
+                Collection<ValidationRule> rules=
+                        getRulesBySourceAndPeriodType( source, periodType, sourceDataElements);
+                sourceRules.addAll( rules );
+                applicableRules.addAll( rules );
+                for ( ValidationRule rule: rules )
+                {
+                    periodMap.putValues( rule, periodType.getPeriods() );
+                    sourceMap.putValue( rule, source.getSource() );
+                }
+            }
+            ruleMap.put( source, sourceRules );
+        }
+        expressionService.explodeValidationRuleExpressions( applicableRules );
+
+        if ( dataValueStore instanceof HibernateDataValueStore)
+        {
+            for ( ValidationRule vrule : applicableRules )
+            {
+                if ( vrule.getRuleType() == RuleType.SURVEILLANCE )
+                {
+                    continue;
+                }
+                else if ( (vrule.getLeftSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) &&
+                        (vrule.getRightSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) )
+                {
+                    simpleRules.add( vrule );
+                }
+                else
+                {
+                    continue;
+                }
+            }
+        }
+
+        if ( dataValueStore instanceof HibernateDataValueStore )
+        {
+            HibernateDataValueStore hs = (HibernateDataValueStore) dataValueStore;
+            Collection<ValidationResult> vresults = context.getValidationResults();
+            for ( ValidationRule rule: simpleRules )
+            {
+                String sql = validationService.getSQL( rule, periodMap.get( rule ), sourceMap.get( rule ) );
+                if ( sql == null )
+                {
+                    continue;
+                }
+                // System.out.println("sql="+sql);
+                SqlRowSet results = hs.rawQuery( sql );
+                simpleRules.add( rule );
+                while ( results.next() )
+                {
+                    ValidationResult vr = new ValidationResult ( periodService.getPeriod( results.getInt( 1 ) ),
+                            organisationUnitService.getOrganisationUnit( results.getInt( 2 )),
+                            categoryService.getDataElementCategoryOptionCombo( results.getInt( 3 ) ),
+                            rule, roundSignificant( results.getDouble( 4 ) ), roundSignificant ( results.getDouble( 5 ) ));
+                    System.out.println("Violation "+rule.getUid()+" at "+
+                            organisationUnitService.getOrganisationUnit( results.getInt( 2 ) ).getName() +
+                            " during " + periodService.getPeriod( results.getInt( 1 ) ).getIsoDate() +
+                            " ( " + rule.getLeftSide().getExpression()+" "+
+                            rule.getOperator().getMathematicalOperator() + " " +
+                            rule.getRightSide().getExpression()+" )");
+                    vresults.add( vr );
+
+                }
+            }
+        }
+
         int threadPoolSize = getThreadPoolSize( context );
         ExecutorService executor = Executors.newFixedThreadPool( threadPoolSize );
 
@@ -109,6 +227,53 @@ public class Validator
         }
 
         return threadPoolSize;
+    }
+
+    /**
+     * Gets the rules that should be evaluated for a given organisation unit and
+     * period type.
+     *
+     * @param sourceX            the organisation unit extended information
+     * @param periodTypeX        the period type extended information
+     * @param sourceDataElements all data elements collected for this
+     *                           organisation unit
+     * @return set of rules for this org unit and period type
+     */
+    private static Set<ValidationRule> getRulesBySourceAndPeriodType(
+            OrganisationUnitExtended sourceX, PeriodTypeExtended periodTypeX,
+            Collection<DataElement> sourceDataElements )
+    {
+        Set<ValidationRule> periodTypeRules = new HashSet<>();
+
+        for ( ValidationRule rule : periodTypeX.getRules() )
+        {
+            if ( rule.getRuleType() == RuleType.VALIDATION )
+            {
+                // For validation-type rules, include only rules where the
+                // organisation collects all the data elements in the rule.
+                // But if this is some funny kind of rule with no elements
+                // (like for testing), include it also.
+                Collection<DataElement> elements = rule.getCurrentDataElements();
+
+                if ( elements == null || elements.size() == 0 || sourceDataElements.containsAll( elements ) )
+                {
+                    periodTypeRules.add( rule );
+                }
+            }
+            else
+            {
+                // For surveillance-type rules, include only rules for this
+                // organisation's unit level.
+                // The organisation may not be configured for the data elements
+                // because they could be aggregated from a lower level.
+                if ( rule.getOrganisationUnitLevel() == sourceX.getLevel() )
+                {
+                    periodTypeRules.add( rule );
+                }
+            }
+        }
+
+        return periodTypeRules;
     }
 
     /**

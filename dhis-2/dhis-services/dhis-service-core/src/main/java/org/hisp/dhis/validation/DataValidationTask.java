@@ -136,77 +136,21 @@ public class DataValidationTask
             ? ValidationRuleService.MAX_INTERACTIVE_ALERTS : ValidationRuleService.MAX_SCHEDULED_ALERTS) )
         {
             Collection<PeriodTypeExtended> xPeriodTypes = context.getPeriodTypeExtendedMap().values();
+            Set<ValidationRule> rulesRun = context.getRulesRun();
+
             for ( PeriodTypeExtended periodTypeX : xPeriodTypes )
             {
                 Collection<DataElement> sourceDataElements = periodTypeX.getSourceDataElements()
                     .get( sourceX.getSource() );
-                Set<ValidationRule> applicableRules = getRulesBySourceAndPeriodType( sourceX, periodTypeX, sourceDataElements );
-                expressionService.explodeValidationRuleExpressions( applicableRules );
+                Set<ValidationRule> rules =
+                        getRulesBySourceAndPeriodType( sourceX, periodTypeX, sourceDataElements );
+                Set<OrganisationUnit> allSources = new HashSet<OrganisationUnit>();
+                expressionService.explodeValidationRuleExpressions( rules );
 
-                if ( applicableRules.isEmpty() ) continue;
-
-                Set<ValidationRule> rules = new HashSet<ValidationRule>();
-                Set<ValidationRule> simpleRules = new HashSet<ValidationRule>();
-                Collection<OrganisationUnit> allSources = new ArrayList<OrganisationUnit>();
+                if ( rules.isEmpty() ) continue;
 
                 allSources.add( sourceX.getSource() );
                 allSources.addAll( sourceX.getChildren() );
-
-                if ( dataValueStore instanceof HibernateDataValueStore )
-                {
-                    for ( ValidationRule vrule : applicableRules )
-                    {
-                        if ( vrule.getRuleType() == RuleType.SURVEILLANCE )
-                        {
-                            rules.add( vrule );
-                        }
-                        else if ( (vrule.getLeftSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) &&
-                            (vrule.getRightSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) )
-                        {
-                            simpleRules.add( vrule );
-                        }
-                        else
-                        {
-                            rules.add( vrule );
-                        }
-                    }
-                }
-                else
-                {
-                    rules = applicableRules;
-                }
-
-                if ( dataValueStore instanceof HibernateDataValueStore )
-                {
-                    HibernateDataValueStore hs = (HibernateDataValueStore) dataValueStore;
-                    Collection<ValidationResult> vresults = context.getValidationResults();
-                    for ( ValidationRule rule: simpleRules )
-                    {
-                        String sql = validationService.getSQL( rule, periodTypeX.getPeriods(), allSources );
-                        if ( sql == null )
-                        {
-                            rules.add( rule );
-                            continue;
-                        }
-			// System.out.println("sql="+sql);
-                        SqlRowSet results = hs.rawQuery( sql );
-                        while ( results.next() )
-                        {
-                            ValidationResult vr = new ValidationResult ( periodService.getPeriod( results.getInt( 1 ) ),
-                                organisationUnitService.getOrganisationUnit( results.getInt( 2 )),
-                                categoryService.getDataElementCategoryOptionCombo( results.getInt( 3 ) ),
-                                rule, roundSignificant( results.getDouble( 4 ) ), roundSignificant ( results.getDouble( 5 ) ));
-                            System.out.println("Violation "+rule.getUid()+" at "+
-                                    organisationUnitService.getOrganisationUnit( results.getInt( 2 )).getName() +
-                                    " during " + periodService.getPeriod( results.getInt( 1 ) ).getIsoDate() +
-                                " ( " + rule.getLeftSide().getExpression()+" "+
-                                    rule.getOperator().getMathematicalOperator() + " " +
-                                    rule.getRightSide().getExpression()+" )");
-                            vresults.add( vr );
-
-                        }
-                    }
-                }
 
                 Set<DataElement> recursiveCurrentDataElements = getRecursiveCurrentDataElements( rules );
 
@@ -224,7 +168,8 @@ public class DataValidationTask
 
                     for ( ValidationRule rule : rules )
                     {
-                        if ( evaluateValidationCheck( currentValueMap, lastUpdatedMap, rule ) )
+                        if (rulesRun.contains( rule ) ) continue;
+                        else if ( evaluateValidationCheck( currentValueMap, lastUpdatedMap, rule ) )
                         {
                             int n_years = rule.getAnnualSampleCount() == null ? 0 : rule.getAnnualSampleCount();
                             int window = rule.getSequentialSampleCount() == null ? 0

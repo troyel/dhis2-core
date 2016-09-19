@@ -92,6 +92,8 @@ public class ValidationRunContext
 
     private Collection<ValidationResult> validationResults;
 
+    private Set<ValidationRule> rulesRun = new HashSet<ValidationRule>();
+
     private ValidationRunContext()
     {
     }
@@ -113,16 +115,14 @@ public class ValidationRunContext
      *
      * @param sources                    organisation units for validation
      * @param periods                    periods for validation
-     * @param attributeCombo             the attribute combo to check (if restricted)
      * @param rules                      validation rules for validation
-     * @param constantMap                map of constants
-     * @param runType                    whether this is an INTERACTIVE or SCHEDULED run
+     * @param attributeCombo             the attribute combo to check (if restricted)
      * @param lastScheduledRun           (for SCHEDULED runs) date/time of previous run
-     * @param expressionService          expression service
-     * @param periodService              period service
-     * @param dataValueService           data value service
-     * @param dataElementCategoryService data element category service
-     * @param currentUserService         current user service
+     * @param runType                    whether this is an INTERACTIVE or SCHEDULED run
+     * @param constantMap                map of constants
+     * @param cogDimensionConstraints
+     * @param coDimensionConstraints
+
      * @return context object for this run
      */
     public static ValidationRunContext getNewContext( Collection<OrganisationUnit> sources,
@@ -442,6 +442,11 @@ public class ValidationRunContext
     public Collection<ValidationResult> getValidationResults()
     {
         return validationResults;
+    }
+
+    public Set<ValidationRule> getRulesRun()
+    {
+        return rulesRun;
     }
 
     public Set<CategoryOptionGroup> getCogDimensionConstraints()

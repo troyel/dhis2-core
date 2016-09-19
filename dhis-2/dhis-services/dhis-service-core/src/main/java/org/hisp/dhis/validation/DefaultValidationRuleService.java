@@ -796,7 +796,7 @@ public class DefaultValidationRuleService
                             " from datavalue "+
                             " where dataelementid in (" + elementId(left_data) + "," + elementId(right_data) + ") " +
                             getSourcesClause( sources ) + getPeriodsClause( periods ) +
-                            " group by periodid, sourceid, attributeoptioncomboid, dataelementid " +
+                            " group by periodid, sourceid, attributeoptioncomboid " +
                             " having " + left_sql + " " + comparator + " " + right_sql + " ";
                     }
                 }
@@ -916,7 +916,11 @@ public class DefaultValidationRuleService
             String clause = " AND periodid IN ( "; boolean initial=true;
             for ( Period p: periods )
             {
-                if (initial)
+                Integer periodId = p.getId();
+                if (periodId == null)
+                {
+                }
+                else if (initial)
                 {
                     initial = false;
                     clause = clause + " " + p.getId();
