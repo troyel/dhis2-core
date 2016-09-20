@@ -143,20 +143,28 @@ public class Validator
         Set<ValidationResult> validations = new HashSet<>();
         for ( ValidationRule rule : applicableRules )
         {
-            String left_expression = rule.getLeftSide().getExpression();
-            String right_expression = rule.getRightSide().getExpression();
-            String sql = dataValueStore.getValidationQuery( rule, left_expression, right_expression,
-                expressionService.getDataInputsInExpression( left_expression ),
-                expressionService.getDataInputsInExpression( right_expression ),
+            String leftExpression = rule.getLeftSide().getExpression();
+            String rightExpression = rule.getRightSide().getExpression();
+            String query = dataValueStore.getValidationQuery( rule, leftExpression, rightExpression,
+                expressionService.getDataInputsInExpression( leftExpression ),
+                expressionService.getDataInputsInExpression( rightExpression ),
                 periodMap.get( rule ), sourceMap.get( rule ),
+                context.getCogDimensionConstraints(),
+                context.getCoDimensionConstraints(),
                 categoryService.getDefaultDataElementCategoryCombo() );
-            if ( sql == null )
+            if ( query == null )
             {
+                System.out.println( "No fast track for " + rule.getUid() + ": " + rule.getDescription() );
+                System.out.println( "No fast track for " + rule.getUid() + ": " +
+                    leftExpression +
+                    " " + rule.getOperator().getMathematicalOperator() + " " +
+                    rightExpression );
                 continue;
             }
+            else rulesRun.add( rule );
 
-            Set<DeflatedValidationResult> rawResults = dataValueStore.runValidationQuery( sql );
-            rulesRun.add( rule );
+            Set<DeflatedValidationResult> rawResults = dataValueStore.runValidationQuery( query );
+
             for ( DeflatedValidationResult r: rawResults )
             {
                 ValidationResult vr = new ValidationResult( periodService.getPeriod( r.getPeriodId() ),
@@ -167,7 +175,6 @@ public class Validator
                     r.getRightSideValue() );
 
                 validations.add( vr );
-
             }
         }
 

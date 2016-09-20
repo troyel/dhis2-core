@@ -127,7 +127,7 @@ public class ValidationRunContext
      */
     public static ValidationRunContext getNewContext( Collection<OrganisationUnit> sources,
         Collection<Period> periods, Collection<ValidationRule> rules, DataElementCategoryOptionCombo attributeCombo,
-        Date lastScheduledRun, ValidationRunType runType, Map<String, Double> constantMap, 
+        Date lastScheduledRun, ValidationRunType runType, Map<String, Double> constantMap,
         Set<CategoryOptionGroup> cogDimensionConstraints, Set<DataElementCategoryOption> coDimensionConstraints )
     {
         ValidationRunContext context = new ValidationRunContext();

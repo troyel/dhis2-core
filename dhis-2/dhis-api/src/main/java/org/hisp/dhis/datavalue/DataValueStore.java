@@ -346,6 +346,8 @@ public interface DataValueStore
         Set<BaseDimensionalItemObject> right_inputs,
         Collection<Period> periods,
         Collection<OrganisationUnit> sources,
+        Set<CategoryOptionGroup> cogDimensionConstraints,
+        Set<DataElementCategoryOption> coDimensionConstraints,
         DataElementCategoryCombo default_category_combo );
 
     public Set<DeflatedValidationResult> runValidationQuery( String query );

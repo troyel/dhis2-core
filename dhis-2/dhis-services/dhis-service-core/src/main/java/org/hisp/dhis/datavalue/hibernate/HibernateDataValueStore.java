@@ -674,6 +674,8 @@ public class HibernateDataValueStore
         Set<BaseDimensionalItemObject> right_inputs,
         Collection<Period> periods,
         Collection<OrganisationUnit> sources,
+        Set<CategoryOptionGroup> cogDimensionConstraints,
+        Set<DataElementCategoryOption> coDimensionConstraints,
         DataElementCategoryCombo default_category_combo )
     {
         if ( rule.getRuleType() == RuleType.VALIDATION )
@@ -698,10 +700,10 @@ public class HibernateDataValueStore
 
                         if ( ( left_sql == null ) || ( right_sql == null ) || (comparator == null ))
                             return null;
-                        else return "SELECT periodid, sourceid, attributeoptioncomboid, " +
+                        else return "SELECT " + rule.getId() + " AS ruleid," +
+                            "periodid, sourceid, attributeoptioncomboid, " +
                             left_sql + " as left_side, " +
-                            right_sql + " as right_side, " +
-                            " '" + rule.getUid() + "' AS rule_uid " +
+                            right_sql + " as right_side " +
                             " from datavalue "+
                             " where dataelementid in (" + elementId(left_data) + "," + elementId(right_data) + ") " +
                             getSourcesClause( sources ) + getPeriodsClause( periods ) +
