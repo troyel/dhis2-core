@@ -32,7 +32,6 @@ import org.hisp.dhis.common.SetMap;
 import org.hisp.dhis.dataelement.DataElement;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
 import org.hisp.dhis.datavalue.DataValueStore;
-import org.hisp.dhis.datavalue.hibernate.HibernateDataValueStore;
 import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.organisationunit.OrganisationUnitService;
@@ -41,7 +40,6 @@ import org.hisp.dhis.period.PeriodService;
 import org.hisp.dhis.system.util.SystemUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
-import org.springframework.jdbc.support.rowset.SqlRowSet;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
@@ -52,8 +50,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-
-import static org.hisp.dhis.system.util.MathUtils.roundSignificant;
 
 /**
  * Evaluates validation rules.
@@ -112,29 +108,29 @@ public class Validator
     public static Collection<ValidationResult> validate( ValidationRunContext context, 
         ApplicationContext applicationContext )
     {
-        DataElementCategoryService categoryService = (DataElementCategoryService) 
+        DataElementCategoryService categoryService = (DataElementCategoryService)
             applicationContext.getBean( DataElementCategoryService.class );
         Collection<PeriodTypeExtended> periodTypes = context.getPeriodTypeExtendedMap().values();
         Collection<OrganisationUnitExtended> sources = context.getSourceXs();
         Set<ValidationRule> applicableRules = new HashSet<ValidationRule>();
-        Set<ValidationRule> simpleRules = new HashSet<ValidationRule>();
         Set<ValidationRule> rulesRun = context.getRulesRun();
-        Map<OrganisationUnitExtended,Set<ValidationRule>> ruleMap =
-                new Hashtable<OrganisationUnitExtended,Set<ValidationRule>>();
-        SetMap<ValidationRule,Period> periodMap = new SetMap<ValidationRule,Period>();
-        SetMap<ValidationRule,OrganisationUnit> sourceMap =
-                new SetMap<ValidationRule,OrganisationUnit>();
-        for ( OrganisationUnitExtended source: sources ) {
+        Map<OrganisationUnitExtended, Set<ValidationRule>> ruleMap =
+            new Hashtable<OrganisationUnitExtended, Set<ValidationRule>>();
+        SetMap<ValidationRule, Period> periodMap = new SetMap<ValidationRule, Period>();
+        SetMap<ValidationRule, OrganisationUnit> sourceMap =
+            new SetMap<ValidationRule, OrganisationUnit>();
+        for ( OrganisationUnitExtended source : sources )
+        {
             Set<ValidationRule> sourceRules = new HashSet<ValidationRule>();
-            for ( PeriodTypeExtended periodType: periodTypes )
+            for ( PeriodTypeExtended periodType : periodTypes )
             {
                 Collection<DataElement> sourceDataElements =
-                        periodType.getSourceDataElements().get( source.getSource() );
-                Collection<ValidationRule> rules=
-                        getRulesBySourceAndPeriodType( source, periodType, sourceDataElements);
+                    periodType.getSourceDataElements().get( source.getSource() );
+                Collection<ValidationRule> rules =
+                    getRulesBySourceAndPeriodType( source, periodType, sourceDataElements );
                 sourceRules.addAll( rules );
                 applicableRules.addAll( rules );
-                for ( ValidationRule rule: rules )
+                for ( ValidationRule rule : rules )
                 {
                     periodMap.putValues( rule, periodType.getPeriods() );
                     sourceMap.putValue( rule, source.getSource() );
@@ -144,57 +140,38 @@ public class Validator
         }
         expressionService.explodeValidationRuleExpressions( applicableRules );
 
-        if ( dataValueStore instanceof HibernateDataValueStore)
+        Set<ValidationResult> validations = new HashSet<>();
+        for ( ValidationRule rule : applicableRules )
         {
-            for ( ValidationRule vrule : applicableRules )
+            String left_expression = rule.getLeftSide().getExpression();
+            String right_expression = rule.getRightSide().getExpression();
+            String sql = dataValueStore.getValidationQuery( rule, left_expression, right_expression,
+                expressionService.getDataInputsInExpression( left_expression ),
+                expressionService.getDataInputsInExpression( right_expression ),
+                periodMap.get( rule ), sourceMap.get( rule ),
+                categoryService.getDefaultDataElementCategoryCombo() );
+            if ( sql == null )
             {
-                if ( vrule.getRuleType() == RuleType.SURVEILLANCE )
-                {
-                    continue;
-                }
-                else if ( (vrule.getLeftSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) &&
-                        (vrule.getRightSide().getExpression().matches( ExpressionService.OPERAND_EXPRESSION )) )
-                {
-                    simpleRules.add( vrule );
-                }
-                else
-                {
-                    continue;
-                }
+                continue;
+            }
+
+            Set<DeflatedValidationResult> rawResults = dataValueStore.runValidationQuery( sql );
+            rulesRun.add( rule );
+            for ( DeflatedValidationResult r: rawResults )
+            {
+                ValidationResult vr = new ValidationResult( periodService.getPeriod( r.getPeriodId() ),
+                    organisationUnitService.getOrganisationUnit( r.getSourceId() ),
+                    categoryService.getDataElementCategoryOptionCombo( r.getAttributeOptionComboId() ),
+                    validationRuleService.getValidationRule( r.getValidationRuleId() ),
+                    r.getLeftSideValue(),
+                    r.getRightSideValue() );
+
+                validations.add( vr );
+
             }
         }
 
-        if ( dataValueStore instanceof HibernateDataValueStore )
-        {
-            HibernateDataValueStore hs = (HibernateDataValueStore) dataValueStore;
-            Collection<ValidationResult> vresults = context.getValidationResults();
-            for ( ValidationRule rule: simpleRules )
-            {
-                String sql = validationRuleService.getSQL( rule, periodMap.get( rule ), sourceMap.get( rule ) );
-                if ( sql == null )
-                {
-                    continue;
-                }
-                // System.out.println("sql="+sql);
-                SqlRowSet results = hs.rawQuery( sql );
-                simpleRules.add( rule );
-                while ( results.next() )
-                {
-                    ValidationResult vr = new ValidationResult ( periodService.getPeriod( results.getInt( 1 ) ),
-                            organisationUnitService.getOrganisationUnit( results.getInt( 2 )),
-                            categoryService.getDataElementCategoryOptionCombo( results.getInt( 3 ) ),
-                            rule, roundSignificant( results.getDouble( 4 ) ), roundSignificant ( results.getDouble( 5 ) ));
-                    System.out.println("Violation "+rule.getUid()+" at "+
-                            organisationUnitService.getOrganisationUnit( results.getInt( 2 ) ).getName() +
-                            " during " + periodService.getPeriod( results.getInt( 1 ) ).getIsoDate() +
-                            " ( " + rule.getLeftSide().getExpression()+" "+
-                            rule.getOperator().getMathematicalOperator() + " " +
-                            rule.getRightSide().getExpression()+" )");
-                    vresults.add( vr );
-
-                }
-            }
-        }
+        context.getValidationResults().addAll( validations );
 
         int threadPoolSize = getThreadPoolSize( context );
         ExecutorService executor = Executors.newFixedThreadPool( threadPoolSize );
@@ -205,7 +182,7 @@ public class Validator
             {
                 ValidationTask task = (ValidationTask) applicationContext.getBean( DataValidationTask.NAME );
                 task.init( sourceX, context );
-                
+
                 executor.execute( task );
             }
         }

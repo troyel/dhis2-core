@@ -28,15 +28,19 @@ package org.hisp.dhis.datavalue;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import org.hisp.dhis.common.BaseDimensionalItemObject;
 import org.hisp.dhis.common.MapMap;
 import org.hisp.dhis.dataelement.CategoryOptionGroup;
 import org.hisp.dhis.dataelement.DataElement;
+import org.hisp.dhis.dataelement.DataElementCategoryCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryOption;
 import org.hisp.dhis.dataelement.DataElementCategoryOptionCombo;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.period.Period;
 import org.hisp.dhis.period.PeriodType;
+import org.hisp.dhis.validation.DeflatedValidationResult;
+import org.hisp.dhis.validation.ValidationRule;
 
 import java.util.Collection;
 import java.util.Date;
@@ -335,5 +339,16 @@ public interface DataValueStore
         OrganisationUnit source, Collection<PeriodType> periodTypes, DataElementCategoryOptionCombo attributeCombo,
         Set<CategoryOptionGroup> cogDimensionConstraints, Set<DataElementCategoryOption> coDimensionConstraints,
         MapMap<Integer, DataElementOperand, Date> lastUpdatedMap );
+
+    public String getValidationQuery( ValidationRule rule,
+        String left_expression,String right_expression,
+        Set<BaseDimensionalItemObject> left_inputs,
+        Set<BaseDimensionalItemObject> right_inputs,
+        Collection<Period> periods,
+        Collection<OrganisationUnit> sources,
+        DataElementCategoryCombo default_category_combo );
+
+    public Set<DeflatedValidationResult> runValidationQuery( String query );
+
 
 }

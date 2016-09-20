@@ -36,17 +36,21 @@ import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.hibernate.criterion.Projections;
 import org.hibernate.criterion.Restrictions;
+import org.hisp.dhis.common.BaseDimensionalItemObject;
 import org.hisp.dhis.common.IdentifiableObjectUtils;
 import org.hisp.dhis.common.MapMap;
 import org.hisp.dhis.commons.util.TextUtils;
 import org.hisp.dhis.dataelement.CategoryOptionGroup;
 import org.hisp.dhis.dataelement.DataElement;
+import org.hisp.dhis.dataelement.DataElementCategoryCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryOption;
 import org.hisp.dhis.dataelement.DataElementCategoryOptionCombo;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.datavalue.DataValue;
 import org.hisp.dhis.datavalue.DataValueStore;
 import org.hisp.dhis.datavalue.DeflatedDataValue;
+import org.hisp.dhis.expression.Expression;
+import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.period.Period;
 import org.hisp.dhis.period.PeriodStore;
@@ -55,12 +59,16 @@ import org.hisp.dhis.system.objectmapper.DataValueRowMapper;
 import org.hisp.dhis.system.objectmapper.DeflatedDataValueRowMapper;
 import org.hisp.dhis.system.util.DateUtils;
 import org.hisp.dhis.system.util.MathUtils;
+import org.hisp.dhis.validation.DeflatedValidationResult;
+import org.hisp.dhis.validation.RuleType;
+import org.hisp.dhis.validation.ValidationRule;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.rowset.SqlRowSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -658,10 +666,202 @@ public class HibernateDataValueStore
         return ids;
     }
 
+    /* Getting SQL for validation rules */
 
-    public SqlRowSet rawQuery( String sql )
+    public String getValidationQuery( ValidationRule rule,
+        String left_expression,String right_expression,
+        Set<BaseDimensionalItemObject> left_inputs,
+        Set<BaseDimensionalItemObject> right_inputs,
+        Collection<Period> periods,
+        Collection<OrganisationUnit> sources,
+        DataElementCategoryCombo default_category_combo )
     {
-        return jdbcTemplate.queryForRowSet( sql );
+        if ( rule.getRuleType() == RuleType.VALIDATION )
+        {
+            Expression left = rule.getLeftSide();
+            Expression right = rule.getRightSide();
+            if ( (left_expression.matches( ExpressionService.OPERAND_EXPRESSION )) &&
+                 (right_expression.matches( ExpressionService.OPERAND_EXPRESSION )) )
+            {
+                if ( (left_inputs.size() == 1) && (right_inputs.size() == 1) )
+                {
+                    BaseDimensionalItemObject left_data=getOne(left_inputs);
+                    BaseDimensionalItemObject right_data=getOne(right_inputs);
+                    if ( (( left_data instanceof DataElement ) ||
+                            ( left_data instanceof DataElementOperand )) &&
+                            (( right_data instanceof DataElement ) ||
+                                    ( right_data instanceof DataElementOperand )))
+                    {
+                        String left_sql = getDataInputExpression( left_data, default_category_combo );
+                        String right_sql = getDataInputExpression( right_data, default_category_combo );
+                        String comparator = getComparator( rule );
+
+                        if ( ( left_sql == null ) || ( right_sql == null ) || (comparator == null ))
+                            return null;
+                        else return "SELECT periodid, sourceid, attributeoptioncomboid, " +
+                            left_sql + " as left_side, " +
+                            right_sql + " as right_side, " +
+                            " '" + rule.getUid() + "' AS rule_uid " +
+                            " from datavalue "+
+                            " where dataelementid in (" + elementId(left_data) + "," + elementId(right_data) + ") " +
+                            getSourcesClause( sources ) + getPeriodsClause( periods ) +
+                            " group by periodid, sourceid, attributeoptioncomboid " +
+                            " having " + left_sql + " " + comparator + " " + right_sql + " ";
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private int elementId( BaseDimensionalItemObject input ) {
+        if (input instanceof DataElement)
+        {
+            DataElement de = (DataElement) input;
+            return de.getId();
+        }
+        else if ( input instanceof DataElementOperand )
+        {
+            DataElementOperand deo = (DataElementOperand) input;
+            return deo.getDataElement().getId();
+        }
+        else return 0;
+    }
+
+    private String getDataInputExpression
+      ( BaseDimensionalItemObject input, DataElementCategoryCombo default_category_combo )
+    {
+        if ( input instanceof DataElement )
+        {
+            DataElement de = (DataElement) input;
+            DataElementCategoryCombo cc = de.getCategoryCombo();
+            if ( ( cc == null ) || ( cc == default_category_combo ) )
+            {
+                return "sum(case when dataelementid = " + de.getId() + " then " +
+                    "cast(value as double precision) else null end)";
+            }
+            else
+            {
+                return "sum(case when dataelementid = " + de.getId() +
+                    " and categoryoptioncomboid = "+  cc.getId() + " then " +
+                    " cast(value as double precision) else null end)";
+            }
+        }
+        else if ( input instanceof DataElementOperand )
+        {
+            DataElementOperand deo = (DataElementOperand) input;
+            DataElement de = deo.getDataElement();
+            DataElementCategoryOptionCombo coc = deo.getCategoryOptionCombo();
+            return "sum(case when dataelementid = " + de.getId() +
+                " and categoryoptioncomboid = " + coc.getId() +
+                " then cast(value as double precision) else null end)";
+        }
+        else return null;
+
+    }
+
+    private static String getComparator( ValidationRule rule )
+    {
+        // We reverse the sense of the operator since we're looking for validations
+        switch ( rule.getOperator() )
+        {
+            case equal_to:
+                return " != ";
+            case greater_than:
+                return " <= ";
+            case greater_than_or_equal_to:
+                return " < ";
+            case less_than:
+                return " >= ";
+            case less_than_or_equal_to:
+                return " > ";
+            case not_equal_to:
+                return " = ";
+            default:
+                return null;
+        }
+    }
+
+    private static BaseDimensionalItemObject getOne( Set<BaseDimensionalItemObject> set )
+    {
+        for ( BaseDimensionalItemObject bdio: set )
+        {
+            return bdio;
+        }
+
+        return null;
+    }
+
+    private static String getSourcesClause( Collection<OrganisationUnit> sources )
+    {
+        if ( ( sources == null ) || ( sources.size() == 0) )
+            return " ";
+        else {
+            String clause = " AND sourceid IN ( "; boolean initial=true;
+            for ( OrganisationUnit source: sources )
+            {
+                if (initial)
+                {
+                    initial = false;
+                    clause = clause + " " + source.getId();
+                }
+                else
+                {
+                    clause = clause + ", " + source.getId();
+                }
+
+            }
+            return clause +" ) ";
+        }
+    }
+
+    private static String getPeriodsClause( Collection<Period> periods )
+    {
+        if ( ( periods == null ) || ( periods.size() == 0) )
+            return " ";
+        else {
+            String clause = " AND periodid IN ( "; boolean initial=true;
+            for ( Period p: periods )
+            {
+                Integer periodId = p.getId();
+                if (periodId == null)
+                {
+                }
+                else if (initial)
+                {
+                    initial = false;
+                    clause = clause + " " + p.getId();
+                }
+                else
+                {
+                    clause = clause + ", " + p.getId();
+                }
+
+            }
+            return clause +" ) ";
+        }
+    }
+
+    public Set<DeflatedValidationResult> runValidationQuery( String sql )
+    {
+
+        SqlRowSet cursor = jdbcTemplate.queryForRowSet( sql );
+        Set<DeflatedValidationResult> results = new HashSet<>();
+
+        while ( cursor.next() )
+        {
+            DeflatedValidationResult vr = new DeflatedValidationResult(
+                cursor.getInt( 1 ),
+                cursor.getInt( 2 ),
+                cursor.getInt( 3 ),
+                cursor.getInt( 4 ),
+                cursor.getDouble( 4 ),
+                cursor.getDouble( 5 ) );
+            results.add( vr );
+        }
+
+        return results;
     }
 
 }
