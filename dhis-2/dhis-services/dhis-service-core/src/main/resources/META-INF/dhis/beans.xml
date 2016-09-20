@@ -902,6 +902,14 @@
     <property name="systemSettingManager" ref="org.hisp.dhis.setting.SystemSettingManager" />
     <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
   </bean>
+
+  <bean id="Validator" class="org.hisp.dhis.validation.Validator">
+    <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
+    <property name="periodService" ref="org.hisp.dhis.period.PeriodService" />
+    <property name="organisationUnitService" ref="org.hisp.dhis.organisationunit.OrganisationUnitService" />
+    <property name="dataValueStore" ref="org.hisp.dhis.datavalue.DataValueStore" />
+    <property name="validationRuleService" ref="org.hisp.dhis.validation.ValidationRuleService" />
+  </bean>
   
   <bean id="validationTask" class="org.hisp.dhis.validation.DataValidationTask" scope="prototype" />
 

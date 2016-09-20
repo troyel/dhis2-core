@@ -28,16 +28,9 @@ package org.hisp.dhis.validation;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
-import org.hisp.dhis.common.ListMap;
 import org.hisp.dhis.common.SetMap;
 import org.hisp.dhis.dataelement.DataElement;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
-import org.hisp.dhis.datavalue.DataValueService;
 import org.hisp.dhis.datavalue.DataValueStore;
 import org.hisp.dhis.datavalue.hibernate.HibernateDataValueStore;
 import org.hisp.dhis.expression.ExpressionService;
@@ -49,6 +42,16 @@ import org.hisp.dhis.system.util.SystemUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.support.rowset.SqlRowSet;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.hisp.dhis.system.util.MathUtils.roundSignificant;
 
@@ -57,29 +60,46 @@ import static org.hisp.dhis.system.util.MathUtils.roundSignificant;
  * 
  * @author Jim Grace
  */
+@Transactional
 public class Validator
 {
 
     @Autowired
     private static ExpressionService expressionService;
 
+    public void setExpressionService( ExpressionService expressionService ) { this.expressionService = expressionService; }
+
     @Autowired
     private static PeriodService periodService;
+
+    public void setPeriodService( PeriodService periodService )
+    {
+        this.periodService = periodService;
+    }
 
     @Autowired
     private static OrganisationUnitService organisationUnitService;
 
+    public void setOrganisationUnitService( OrganisationUnitService organisationUnitService )
+    {
+        this.organisationUnitService = organisationUnitService;
+    }
+
     @Autowired
     private static DataValueStore dataValueStore;
 
-    @Autowired
-    private static DataValueService dataValueService;
+    public void setDataValueStore( DataValueStore dataValueStore )
+    {
+        this.dataValueStore = dataValueStore;
+    }
 
     @Autowired
-    private static DataElementCategoryService categoryService;
+    private static ValidationRuleService validationRuleService;
 
-    @Autowired
-    private static ValidationRuleService validationService;
+    public void setValidationRuleService( ValidationRuleService validationRuleService )
+    {
+        this.validationRuleService = validationRuleService;
+    }
 
     /**
      * Evaluates validation rules for a collection of organisation units. This
@@ -150,7 +170,7 @@ public class Validator
             Collection<ValidationResult> vresults = context.getValidationResults();
             for ( ValidationRule rule: simpleRules )
             {
-                String sql = validationService.getSQL( rule, periodMap.get( rule ), sourceMap.get( rule ) );
+                String sql = validationRuleService.getSQL( rule, periodMap.get( rule ), sourceMap.get( rule ) );
                 if ( sql == null )
                 {
                     continue;
