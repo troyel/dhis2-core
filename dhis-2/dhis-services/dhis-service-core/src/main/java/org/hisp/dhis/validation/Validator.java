@@ -154,16 +154,28 @@ public class Validator
                 categoryService.getDefaultDataElementCategoryCombo() );
             if ( query == null )
             {
-                System.out.println( "No fast track for " + rule.getUid() + ": " + rule.getDescription() );
-                System.out.println( "No fast track for " + rule.getUid() + ": " +
+                System.out.println( "No fast track for " + rule.getUid() + " (" + rule.getDescription() + ") " +
+                        leftExpression +
+                        " " + rule.getOperator().getMathematicalOperator() + " " +
+                        rightExpression );
+                continue;
+            }
+            else {
+                System.out.println( "Fast track for " + rule.getUid() + " (" + rule.getDescription() + ") " +
+                        leftExpression +
+                        " " + rule.getOperator().getMathematicalOperator() + " " +
+                        rightExpression );
+                rulesRun.add( rule );
+            }
+
+            Set<DeflatedValidationResult> rawResults = dataValueStore.runValidationQuery( query );
+
+            System.out.println(
+                    rawResults.size()+" violations from fast track for " +
+                    rule.getUid() + " (" + rule.getDescription() + ") " +
                     leftExpression +
                     " " + rule.getOperator().getMathematicalOperator() + " " +
                     rightExpression );
-                continue;
-            }
-            else rulesRun.add( rule );
-
-            Set<DeflatedValidationResult> rawResults = dataValueStore.runValidationQuery( query );
 
             for ( DeflatedValidationResult r: rawResults )
             {
