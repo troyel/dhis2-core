@@ -82,8 +82,13 @@ public interface ExpressionService
     String CONSTANT_EXPRESSION = "C\\{([a-zA-Z]\\w{10})\\}";
     String OU_GROUP_EXPRESSION = "OUG\\{([a-zA-Z]\\w{10})\\}";
     String DAYS_EXPRESSION = "\\[days\\]";
+    String OPERAND_EXPRESSION_OR_NUMBER =
+            "(" + OPERAND_EXPRESSION +
+                    "|([0-9]+\\.[0-9]*)" +
+                    "|([0-9]+)" + ")";
     String OPERAND_SUM_EXPRESSION =
-        "(" + OPERAND_EXPRESSION + ")(\\+((" + OPERAND_EXPRESSION + ")" + "|([0-9]+\\.[0-9]+)" + "|([0-9]+)" + "))" + "+";
+        OPERAND_EXPRESSION_OR_NUMBER + "(\\+" + OPERAND_EXPRESSION_OR_NUMBER + ")" + "*";
+    String LITERAL_NUMBER_EXPRESSION = "(^|\\+)[0-9]+(\\.[0-9]+)?";
 
     Pattern VARIABLE_PATTERN = Pattern.compile( VARIABLE_EXPRESSION );
     Pattern OPERAND_PATTERN = Pattern.compile( OPERAND_EXPRESSION );
@@ -95,6 +100,7 @@ public interface ExpressionService
     Pattern OU_GROUP_PATTERN = Pattern.compile( OU_GROUP_EXPRESSION );
     Pattern DAYS_PATTERN = Pattern.compile( DAYS_EXPRESSION );
     Pattern OPERAND_SUM_PATTERN = Pattern.compile( OPERAND_SUM_EXPRESSION );
+    Pattern LITERAL_NUMBER_PATTERN = Pattern.compile( LITERAL_NUMBER_EXPRESSION );
 
     /**
      * Adds a new Expression to the database.
