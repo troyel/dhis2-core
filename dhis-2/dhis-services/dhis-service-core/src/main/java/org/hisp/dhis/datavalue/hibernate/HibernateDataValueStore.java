@@ -49,7 +49,6 @@ import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.datavalue.DataValue;
 import org.hisp.dhis.datavalue.DataValueStore;
 import org.hisp.dhis.datavalue.DeflatedDataValue;
-import org.hisp.dhis.expression.Expression;
 import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.period.Period;
@@ -639,24 +638,24 @@ public class HibernateDataValueStore
                 if ((left_sql == null) || (right_sql == null) || (comparator == null))
                     return null;
                 else return "SELECT " + rule.getId() + " AS ruleid," +
-                        "periodid, sourceid, attributeoptioncomboid, " +
-                        left_sql + ("+"+left_constant) + " as left_side, " +
-                        right_sql + ("+"+left_constant) + " as right_side " +
-                        " from datavalue " +
+                        "periodid, sourceid, attributeoptioncomboid,\n\t " +
+                        left_sql + ("+"+left_constant) + " as left_side,\n\t " +
+                        right_sql + ("+"+left_constant) + " as right_side\n\t " +
+                        " from datavalue\n\t " +
                         " where dataelementid in " +
-                        "(" + elementIds(left_inputs) +
+                        "(" + dataElementIds(left_inputs) +
                         (((left_inputs.size() > 0) && (right_inputs.size() > 0)) ? (",") : ("")) +
-                        elementIds(right_inputs) + ") " +
-                        getSourcesClause(sources) + getPeriodsClause(periods) +
-                        " group by periodid, sourceid, attributeoptioncomboid " +
-                        " having " + left_sql + " " + comparator + " " + right_sql + " ";
+                        dataElementIds(right_inputs) + ")\n\t " +
+                        getSourcesClause(sources) + "\n\t " + getPeriodsClause(periods) + "\n\t " +
+                        " group by periodid, sourceid, attributeoptioncomboid " + "\n\t " +
+                        " having " + left_sql + "\n\t " + comparator + "\n\t " + right_sql + "\n\t ";
             }
         }
 
         return null;
     }
 
-    private String elementIds(Set<BaseDimensionalItemObject> inputs) {
+    private String dataElementIds(Set<BaseDimensionalItemObject> inputs) {
         boolean first = true;
         String result = "";
         for (BaseDimensionalItemObject input : inputs) {
@@ -665,7 +664,8 @@ public class HibernateDataValueStore
                 result = result + ((first) ? ("") : (", ")) + de.getId();
             } else if (input instanceof DataElementOperand) {
                 DataElementOperand deo = (DataElementOperand) input;
-                result = result + ((first) ? ("") : (", ")) + deo.getId();
+                DataElement de = deo.getDataElement();
+                result = result + ((first) ? ("") : (", ")) + de.getId();
             } else {
                 continue;
             }

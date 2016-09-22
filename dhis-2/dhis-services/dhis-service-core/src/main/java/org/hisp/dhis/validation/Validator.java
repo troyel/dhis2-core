@@ -162,9 +162,10 @@ public class Validator
             }
             else {
                 System.out.println( "Fast track for " + rule.getUid() + " (" + rule.getDescription() + ") " +
-                        leftExpression +
-                        " " + rule.getOperator().getMathematicalOperator() + " " +
-                        rightExpression );
+                    leftExpression +
+                    " " + rule.getOperator().getMathematicalOperator() + " " +
+                    rightExpression );
+                System.out.println( "Fast track for " + rule.getUid() + " (" + rule.getDescription() + ") : \n " + query );
                 rulesRun.add( rule );
             }
 
