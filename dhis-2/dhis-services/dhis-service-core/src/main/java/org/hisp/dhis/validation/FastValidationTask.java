@@ -28,12 +28,14 @@ package org.hisp.dhis.validation;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import java.util.Set;
+import org.springframework.context.ApplicationContext;
 
-public interface ValidationTask
+public interface FastValidationTask
     extends Runnable
 {
-    void init( OrganisationUnitExtended sourceX, ValidationRunContext context );
+    public void init( ValidationRule rule, String query, ValidationRunContext context,
+        ApplicationContext appContext );
 
-    void init( OrganisationUnitExtended sourceX, ValidationRunContext context, Set<ValidationRule> skipRules );
+    public String getQuery();
+
 }

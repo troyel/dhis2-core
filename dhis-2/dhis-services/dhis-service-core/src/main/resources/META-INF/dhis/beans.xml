@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+  xmlns:aop="http://www.springframework.org/schema/aop"
   xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.2.xsd
-    http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.2.xsd
+
     http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.2.xsd">
 
   <bean id="org.hisp.dhis.preheat.PreheatService" class="org.hisp.dhis.preheat.DefaultPreheatService" scope="prototype">
@@ -892,9 +892,11 @@
   <bean id="org.hisp.dhis.validation.ValidationRuleService" class="org.hisp.dhis.validation.DefaultValidationRuleService">
     <property name="validationRuleStore" ref="org.hisp.dhis.validation.ValidationRuleStore" />
     <property name="validationRuleGroupStore" ref="org.hisp.dhis.validation.ValidationRuleGroupStore" />
+    <property name="validator" ref="org.hisp.dhis.validation.Validator" />
     <property name="periodService" ref="org.hisp.dhis.period.PeriodService" />
     <property name="constantService" ref="org.hisp.dhis.constant.ConstantService" />
     <property name="dataValueService" ref="org.hisp.dhis.datavalue.DataValueService" />
+    <property name="dataValueStore" ref="org.hisp.dhis.datavalue.DataValueStore" />
     <property name="categoryService" ref="org.hisp.dhis.dataelement.DataElementCategoryService" />
     <property name="messageService" ref="org.hisp.dhis.message.MessageService" />
     <property name="organisationUnitService" ref="org.hisp.dhis.organisationunit.OrganisationUnitService" />
@@ -903,15 +905,26 @@
     <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
   </bean>
 
-  <bean id="Validator" class="org.hisp.dhis.validation.Validator">
-    <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
-    <property name="periodService" ref="org.hisp.dhis.period.PeriodService" />
-    <property name="organisationUnitService" ref="org.hisp.dhis.organisationunit.OrganisationUnitService" />
-    <property name="dataValueStore" ref="org.hisp.dhis.datavalue.DataValueStore" />
+  <bean id="org.hisp.dhis.validation.Validator" class="org.hisp.dhis.validation.Validator">
+    <property name="validationRuleStore" ref="org.hisp.dhis.validation.ValidationRuleStore" />
+    <property name="validationRuleGroupStore" ref="org.hisp.dhis.validation.ValidationRuleGroupStore" />
     <property name="validationRuleService" ref="org.hisp.dhis.validation.ValidationRuleService" />
+    <property name="periodService" ref="org.hisp.dhis.period.PeriodService" />
+    <property name="constantService" ref="org.hisp.dhis.constant.ConstantService" />
+    <property name="dataValueService" ref="org.hisp.dhis.datavalue.DataValueService" />
+    <property name="dataValueStore" ref="org.hisp.dhis.datavalue.DataValueStore" />
+    <property name="categoryService" ref="org.hisp.dhis.dataelement.DataElementCategoryService" />
+    <property name="messageService" ref="org.hisp.dhis.message.MessageService" />
+    <property name="organisationUnitService" ref="org.hisp.dhis.organisationunit.OrganisationUnitService" />
+    <property name="currentUserService" ref="org.hisp.dhis.user.CurrentUserService" />
+    <property name="systemSettingManager" ref="org.hisp.dhis.setting.SystemSettingManager" />
+    <property name="expressionService" ref="org.hisp.dhis.expression.ExpressionService" />
   </bean>
-  
+
   <bean id="validationTask" class="org.hisp.dhis.validation.DataValidationTask" scope="prototype" />
+
+
+  <bean id="fastValidationTask" class="org.hisp.dhis.validation.FastTrackValidationTask" scope="prototype" />
 
   <bean id="org.hisp.dhis.dataelement.DataElementCategoryService" class="org.hisp.dhis.dataelement.DefaultDataElementCategoryService">
     <property name="categoryStore" ref="org.hisp.dhis.dataelement.CategoryStore" />

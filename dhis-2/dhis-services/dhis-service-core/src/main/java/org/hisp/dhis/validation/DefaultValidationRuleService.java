@@ -31,19 +31,17 @@ package org.hisp.dhis.validation;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.hisp.dhis.common.BaseDimensionalItemObject;
 import org.hisp.dhis.common.GenericIdentifiableObjectStore;
 import org.hisp.dhis.commons.filter.FilterUtils;
 import org.hisp.dhis.constant.ConstantService;
 import org.hisp.dhis.dataelement.DataElement;
-import org.hisp.dhis.dataelement.DataElementCategoryCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryOptionCombo;
 import org.hisp.dhis.dataelement.DataElementCategoryService;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.dataset.DataSet;
 import org.hisp.dhis.datavalue.DataValue;
 import org.hisp.dhis.datavalue.DataValueService;
-import org.hisp.dhis.expression.Expression;
+import org.hisp.dhis.datavalue.DataValueStore;
 import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.i18n.I18nFormat;
 import org.hisp.dhis.message.MessageService;
@@ -84,6 +82,7 @@ import static org.hisp.dhis.commons.util.TextUtils.LN;
 public class DefaultValidationRuleService
     implements ValidationRuleService
 {
+
     private static final Log log = LogFactory.getLog( DefaultValidationRuleService.class );
 
     // -------------------------------------------------------------------------
@@ -95,6 +94,13 @@ public class DefaultValidationRuleService
     public void setValidationRuleStore( ValidationRuleStore validationRuleStore )
     {
         this.validationRuleStore = validationRuleStore;
+    }
+
+    private Validator validator;
+
+    public void setValidator( Validator validator )
+    {
+        this.validator = validator;
     }
 
     private GenericIdentifiableObjectStore<ValidationRuleGroup> validationRuleGroupStore;
@@ -136,6 +142,14 @@ public class DefaultValidationRuleService
         this.categoryService = categoryService;
     }
 
+    @Autowired
+    private static DataValueStore dataValueStore;
+
+    public void setDataValueStore( DataValueStore dataValueStore )
+    {
+        this.dataValueStore = dataValueStore;
+    }
+
     private MessageService messageService;
 
     public void setMessageService( MessageService messageService )
@@ -163,7 +177,20 @@ public class DefaultValidationRuleService
     {
         this.systemSettingManager = systemSettingManager;
     }
-    
+
+    // Logging
+
+
+    private String timestring(double start)
+    {
+        return "[" + ((System.nanoTime()-start)/1000000000) + "] ";
+    }
+
+    private void dolog( double start, String msg )
+    {
+        System.out.println( timestring(start) + msg );
+    }
+
     @Autowired
     private ApplicationContext applicationContext;
 
@@ -182,7 +209,7 @@ public class DefaultValidationRuleService
 
         User user = currentUserService.getCurrentUser();
         
-        Collection<ValidationResult> results = Validator.validate( ValidationRunContext.getNewContext( 
+        Collection<ValidationResult> results = validator.validate( ValidationRunContext.getNewContext(
             sources, periods, rules, attributeCombo, 
             null, ValidationRunType.SCHEDULED, constantService.getConstantMap(), 
             categoryService.getCogDimensionConstraints( user.getUserCredentials() ),
@@ -212,11 +239,12 @@ public class DefaultValidationRuleService
 
         User user = currentUserService.getCurrentUser();
         
-        return Validator.validate( ValidationRunContext.getNewContext( 
+        return validator.validate( ValidationRunContext.getNewContext(
             sources, periods, rules, null, null,
             ValidationRunType.SCHEDULED, constantService.getConstantMap(), 
             categoryService.getCogDimensionConstraints( user.getUserCredentials() ),
-            categoryService.getCoDimensionConstraints( user.getUserCredentials() ) ), applicationContext );
+            categoryService.getCoDimensionConstraints( user.getUserCredentials() ) ),
+            applicationContext );
     }
 
     @Override
@@ -239,11 +267,12 @@ public class DefaultValidationRuleService
 
         User user = currentUserService.getCurrentUser();
         
-        return Validator.validate( ValidationRunContext.getNewContext( 
+        return validator.validate( ValidationRunContext.getNewContext(
             sources, periods, rules, attributeCombo, null,
             ValidationRunType.SCHEDULED, constantService.getConstantMap(), 
             categoryService.getCogDimensionConstraints( user.getUserCredentials() ),
-            categoryService.getCoDimensionConstraints( user.getUserCredentials() ) ), applicationContext );
+            categoryService.getCoDimensionConstraints( user.getUserCredentials() ) ),
+            applicationContext );
     }
 
     @Override
@@ -270,7 +299,7 @@ public class DefaultValidationRuleService
 
         User user = currentUserService.getCurrentUser();
         
-        Collection<ValidationResult> results = Validator.validate( ValidationRunContext.getNewContext( 
+        Collection<ValidationResult> results = validator.validate( ValidationRunContext.getNewContext(
             sources, periods, rules, null, lastScheduledRun,
             ValidationRunType.SCHEDULED, constantService.getConstantMap(), 
             categoryService.getCogDimensionConstraints( user.getUserCredentials() ),
@@ -757,6 +786,22 @@ public class DefaultValidationRuleService
     public List<ValidationRuleGroup> getValidationRuleGroupsBetweenByName( String name, int first, int max )
     {
         return validationRuleGroupStore.getAllLikeName( name, first, max ) ;
+    }
+
+    /**
+     * Reload attribute category option combos into this Hibernate context.
+     *
+     * @param results
+     * @param dataElementCategoryService
+     */
+    private static void reloadAttributeOptionCombos( Collection<ValidationResult> results,
+        DataElementCategoryService dataElementCategoryService )
+    {
+        for ( ValidationResult result : results )
+        {
+            result.setAttributeOptionCombo( dataElementCategoryService
+                .getDataElementCategoryOptionCombo( result.getAttributeOptionCombo().getId() ) );
+        }
     }
 
 }

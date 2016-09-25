@@ -624,21 +624,26 @@ public class HibernateDataValueStore
                                      Collection<OrganisationUnit> sources,
                                      Set<CategoryOptionGroup> cogDimensionConstraints,
                                      Set<DataElementCategoryOption> coDimensionConstraints,
-                                     DataElementCategoryCombo default_category_combo) {
-        if (rule.getRuleType() == RuleType.VALIDATION) {
-            if (OPERAND_SUM_PATTERN.matcher( left_expression ).matches() &&
+                                     DataElementCategoryCombo default_category_combo )
+    {
+        if ( rule.getRuleType() != RuleType.VALIDATION )
+        {
+            return null;
+        }
+        else if (OPERAND_SUM_PATTERN.matcher( left_expression ).matches() &&
                     OPERAND_SUM_PATTERN.matcher( left_expression ).matches() )
             {
                 String left_sql = getDataInputExpression(left_inputs, default_category_combo );
                 String right_sql = getDataInputExpression(right_inputs, default_category_combo );
+                String comparator = getComparator(rule);
+
                 Double left_constant = getLiteralConstant( left_expression );
                 Double right_constant = getLiteralConstant( right_expression );
-                String comparator = getComparator(rule);
 
                 if ((left_sql == null) || (right_sql == null) || (comparator == null))
                     return null;
                 else return "SELECT " + rule.getId() + " AS ruleid," +
-                        "periodid, sourceid, attributeoptioncomboid,\n\t " +
+                    "periodid, sourceid, attributeoptioncomboid,\n\t " +
                         left_sql + ("+"+left_constant) + " as left_side,\n\t " +
                         right_sql + ("+"+left_constant) + " as right_side\n\t " +
                         " from datavalue\n\t " +
@@ -646,67 +651,76 @@ public class HibernateDataValueStore
                         "(" + dataElementIds(left_inputs) +
                         (((left_inputs.size() > 0) && (right_inputs.size() > 0)) ? (",") : ("")) +
                         dataElementIds(right_inputs) + ")\n\t " +
-                        getSourcesClause(sources) + "\n\t " + getPeriodsClause(periods) + "\n\t " +
+                        getSourcesClause( sources ) + "\n\t " + getPeriodsClause( periods) + "\n\t " +
                         " group by periodid, sourceid, attributeoptioncomboid " + "\n\t " +
-                        " having " + left_sql + "\n\t " + comparator + "\n\t " + right_sql + "\n\t ";
+                        " having " + left_sql + ("+"+left_constant) + "\n\t " +
+                    comparator + "\n\t " +
+                    right_sql + ("+"+left_constant);
             }
-        }
 
         return null;
     }
 
     private String dataElementIds(Set<BaseDimensionalItemObject> inputs) {
-        boolean first = true;
-        String result = "";
+        boolean sep = false;
+        StringBuffer out = new StringBuffer();
         for (BaseDimensionalItemObject input : inputs) {
             if (input instanceof DataElement) {
                 DataElement de = (DataElement) input;
-                result = result + ((first) ? ("") : (", ")) + de.getId();
-            } else if (input instanceof DataElementOperand) {
+                if (sep) out.append(", "); else sep=true;
+                out.append( de.getId() );}
+            else if (input instanceof DataElementOperand) {
+                if (sep) out.append(", "); else sep=true;
                 DataElementOperand deo = (DataElementOperand) input;
                 DataElement de = deo.getDataElement();
-                result = result + ((first) ? ("") : (", ")) + de.getId();
+                out.append( de.getId() );
             } else {
                 continue;
             }
-            first = false;
         }
-        return result;
+        return out.toString();
     }
 
     private String getDataInputExpression
             (Set<BaseDimensionalItemObject> inputs, DataElementCategoryCombo default_category_combo) {
-        String clause = "sum(case when (";
-        boolean first = true; int n_subclauses=0;
+        StringBuffer out = new StringBuffer();
+        out.append( "sum(case when (" );
+        boolean sep = false; int n_subclauses=0;
         for (BaseDimensionalItemObject input : inputs) {
             if (input instanceof DataElement) {
                 DataElement de = (DataElement) input;
                 DataElementCategoryCombo cc = de.getCategoryCombo();
-                if ((cc == null) || (cc == default_category_combo)) {
-                    clause = clause + ((first) ? ("") : (" OR")) +
-                            " (dataelementid = " + de.getId() + ") ";
-                } else {
-                    clause = clause + ((first) ? ("") : (" OR")) +
-                            " (dataelementid = " + de.getId() +
-                            " AND categoryoptioncomboid = " + cc.getId() + ") ";
+                if ((cc == null) || (cc == default_category_combo))
+                {
+                    if (sep) out.append("OR"); else sep=true;
+                    out.append( " (dataelementid = " + de.getId() + ") " );
                 }
-            } else if (input instanceof DataElementOperand) {
+                else
+                {
+                    if (sep) out.append("OR"); else sep=true;
+                    out.append( " (dataelementid = " + de.getId() +
+                            " AND categoryoptioncomboid = " + cc.getId() + ") " );
+                }
+            }
+            else if (input instanceof DataElementOperand) {
                 DataElementOperand deo = (DataElementOperand) input;
                 DataElement de = deo.getDataElement();
                 DataElementCategoryOptionCombo cc = deo.getCategoryOptionCombo();
-                clause = clause + ((first) ? ("") : (" OR")) +
-                        " (dataelementid = " + de.getId() +
-                        " AND categoryoptioncomboid = " + cc.getId() + ") ";
-            } else {
+                if (sep) out.append("OR"); else sep=true;
+                out.append( " (dataelementid = " + de.getId() +
+                        " AND categoryoptioncomboid = " + cc.getId() + ") " );
+            }
+            else
+                {
                 return null;
             }
-            first = false;
             n_subclauses++;
         }
 
         if ( n_subclauses > 0)
         {
-            return clause + ")" + " then cast(value as double precision) else null end)";
+            out.append( ")" + " then cast(value as double precision) else null end)" );
+            return out.toString();
         }
         else return "0";
     }
@@ -749,36 +763,21 @@ public class HibernateDataValueStore
         }
     }
 
-    private static BaseDimensionalItemObject getOne( Set<BaseDimensionalItemObject> set )
-    {
-        for ( BaseDimensionalItemObject bdio: set )
-        {
-            return bdio;
-        }
-
-        return null;
-    }
-
     private static String getSourcesClause( Collection<OrganisationUnit> sources )
     {
         if ( ( sources == null ) || ( sources.size() == 0) )
             return " ";
         else {
-            String clause = " AND sourceid IN ( "; boolean initial=true;
+            StringBuffer out = new StringBuffer();
+            out.append( " AND sourceid IN ( " ); boolean sep=false;
             for ( OrganisationUnit source: sources )
             {
-                if (initial)
-                {
-                    initial = false;
-                    clause = clause + " " + source.getId();
-                }
-                else
-                {
-                    clause = clause + ", " + source.getId();
-                }
-
+                if (sep) out.append(", "); else sep=true;
+                out.append( source.getId() );
             }
-            return clause +" ) ";
+            out.append( " ) " );
+
+            return out.toString();
         }
     }
 
@@ -787,25 +786,16 @@ public class HibernateDataValueStore
         if ( ( periods == null ) || ( periods.size() == 0) )
             return " ";
         else {
-            String clause = " AND periodid IN ( "; boolean initial=true;
-            for ( Period p: periods )
+            StringBuffer out = new StringBuffer();
+            out.append( " AND periodid IN ( " ); boolean sep=false;
+            for ( Period period: periods )
             {
-                Integer periodId = p.getId();
-                if (periodId == null)
-                {
-                }
-                else if (initial)
-                {
-                    initial = false;
-                    clause = clause + " " + p.getId();
-                }
-                else
-                {
-                    clause = clause + ", " + p.getId();
-                }
-
+                if (sep) out.append(", "); else sep=true;
+                out.append( period.getId() );
             }
-            return clause +" ) ";
+            out.append( " ) " );
+
+            return out.toString();
         }
     }
 

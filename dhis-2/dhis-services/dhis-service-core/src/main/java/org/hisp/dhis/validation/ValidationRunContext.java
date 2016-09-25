@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Hashtable;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -94,6 +95,15 @@ public class ValidationRunContext
 
     private Set<ValidationRule> rulesRun = new HashSet<ValidationRule>();
 
+    private Map<ValidationRule, Integer> rules2ids = new Hashtable<>();
+    private Map<Integer, ValidationRule> ids2rules = new Hashtable<>();
+
+    private Map<Period, Integer> periods2ids = new Hashtable<>();
+    private Map<Integer, Period  > ids2periods = new Hashtable<>();
+    
+    private Map<OrganisationUnit, Integer> sources2ids = new Hashtable<>();
+    private Map<Integer, OrganisationUnit  > ids2sources = new Hashtable<>();
+
     private ValidationRunContext()
     {
     }
@@ -109,7 +119,7 @@ public class ValidationRunContext
             .append( "\n sourceXs", Arrays.toString( sourceXs.toArray() ) )
             .append( "\n validationResults", Arrays.toString( validationResults.toArray() ) ).toString();
     }
-    
+
     /**
      * Creates and fills a new context object for a validation run.
      *
@@ -128,7 +138,7 @@ public class ValidationRunContext
     public static ValidationRunContext getNewContext( Collection<OrganisationUnit> sources,
         Collection<Period> periods, Collection<ValidationRule> rules, DataElementCategoryOptionCombo attributeCombo,
         Date lastScheduledRun, ValidationRunType runType, Map<String, Double> constantMap,
-        Set<CategoryOptionGroup> cogDimensionConstraints, Set<DataElementCategoryOption> coDimensionConstraints )
+        Set<CategoryOptionGroup> cogDimensionConstraints, Set<DataElementCategoryOption> coDimensionConstraints)
     {
         ValidationRunContext context = new ValidationRunContext();
         context.validationResults = new ConcurrentLinkedQueue<>(); // thread-safe
@@ -158,19 +168,13 @@ public class ValidationRunContext
     {
         addPeriodsToContext( periods );
 
-        boolean surveillanceRulesPresent = addRulesToContext( rules );
+        addRulesToContext( rules );
 
         removeAnyUnneededPeriodTypes();
 
         addSourcesToContext( sources, true );
 
         countOfSourcesToValidate = sources.size();
-
-        if ( surveillanceRulesPresent )
-        {
-            Set<OrganisationUnit> otherDescendants = getAllOtherDescendants( sources );
-            addSourcesToContext( otherDescendants, false );
-        }
     }
 
     /**
@@ -182,8 +186,14 @@ public class ValidationRunContext
     {
         for ( Period period : periods )
         {
-            PeriodTypeExtended periodTypeX = getOrCreatePeriodTypeExtended( period.getPeriodType() );
-            periodTypeX.getPeriods().add( period );
+            Integer id = period.getId();
+            if (id != null)
+            {
+                PeriodTypeExtended periodTypeX = getOrCreatePeriodTypeExtended( period.getPeriodType() );
+                periodTypeX.getPeriods().add( period );
+                periods2ids.put( period, id );
+                ids2periods.put( id, period );
+            }
         }
     }
 
@@ -193,24 +203,10 @@ public class ValidationRunContext
      * @param rules validation rules to add
      * @return true if there were some surveillance-type rules, false otherwise.
      */
-    private boolean addRulesToContext( Collection<ValidationRule> rules )
+    private void addRulesToContext( Collection<ValidationRule> rules )
     {
-        boolean surveillanceRulesPresent = false;
-
         for ( ValidationRule rule : rules )
         {
-            if ( rule.getRuleType() == RuleType.SURVEILLANCE )
-            {
-                if ( rule.getOrganisationUnitLevel() == null )
-                {
-                    log.error( "surveillance-type validationRule '" + (rule.getName() == null ? "" : rule.getName())
-                        + "' has no organisationUnitLevel." );
-                    continue; // Ignore rule, avoid null reference later.
-                }
-
-                surveillanceRulesPresent = true;
-            }
-
             // Find the period type extended for this rule
             PeriodTypeExtended periodTypeX = getOrCreatePeriodTypeExtended( rule.getPeriodType() );
             periodTypeX.getRules().add( rule ); // Add to the period type ext.
@@ -229,10 +225,12 @@ public class ValidationRunContext
             Collection<PeriodType> allowedPastPeriodTypes = getAllowedPeriodTypesForDataElements(
                 rule.getPastDataElements(), rule.getPeriodType() );
             ValidationRuleExtended ruleX = new ValidationRuleExtended( rule, allowedPastPeriodTypes );
-            ruleXMap.put( rule, ruleX );
-        }
+            Integer id = rule.getId();
 
-        return surveillanceRulesPresent;
+            ruleXMap.put( rule, ruleX );
+            rules2ids.put( rule, id );
+            ids2rules.put( id, rule );
+        }
     }
 
     /**
@@ -252,58 +250,6 @@ public class ValidationRunContext
     }
 
     /**
-     * Finds all organisation unit descendants that are not in a given
-     * collection of organisation units. This is needed for surveillance-type
-     * rules, because the data values for the rules may need to be aggregated
-     * from the organisation unit's descendants.
-     * <p>
-     * The descendants will likely be there anyway for a run including
-     * surveillance-type rules, because an interactive run containing
-     * surveillance-type rules should select an entire subtree, and a
-     * scheduled monitoring run will contain all organisation units. But check
-     * just to be sure, and find any that may be missing. This makes sure
-     * that some of the tests will work, and may be required for some
-     * future features to work.
-     *
-     * @param sources organisation units whose descendants to check
-     * @return all other descendants who need to be added who were not
-     * in the original list
-     */
-    private Set<OrganisationUnit> getAllOtherDescendants( Collection<OrganisationUnit> sources )
-    {
-        Set<OrganisationUnit> allOtherDescendants = new HashSet<>();
-
-        for ( OrganisationUnit source : sources )
-        {
-            getOtherDescendantsRecursive( source, sources, allOtherDescendants );
-        }
-
-        return allOtherDescendants;
-    }
-
-    /**
-     * If the children of this organisation unit are not in the collection, then
-     * add them and all their descendants if needed.
-     *
-     * @param source organisation unit whose children to check
-     * @param sources organisation units in the initial list
-     * @param allOtherDescendants list of organisation unit descendants we
-     *                            need to add
-     */
-    private void getOtherDescendantsRecursive( OrganisationUnit source, Collection<OrganisationUnit> sources,
-        Set<OrganisationUnit> allOtherDescendants )
-    {
-        for ( OrganisationUnit child : source.getChildren() )
-        {
-            if ( !sources.contains( child ) && !allOtherDescendants.contains( child ) )
-            {
-                allOtherDescendants.add( child );
-                getOtherDescendantsRecursive( child, sources, allOtherDescendants );
-            }
-        }
-    }
-
-    /**
      * Adds a collection of organisation units to the validation run context.
      *
      * @param sources organisation units to add
@@ -318,7 +264,11 @@ public class ValidationRunContext
         for ( OrganisationUnit source : sources )
         {
             OrganisationUnitExtended sourceX = new OrganisationUnitExtended( source, ruleCheckThisSource );
+            Integer id = source.getId();
+
             sourceXs.add( sourceX );
+            sources2ids.put( source, id );
+            ids2sources.put( id, source );
 
             Map<PeriodType, Set<DataElement>> sourceElementsMap = source.getDataElementsInDataSetsByPeriodType();
 
@@ -458,4 +408,23 @@ public class ValidationRunContext
     {
         return coDimensionConstraints;
     }
+
+
+    public OrganisationUnit getSource( int sourceId )
+    {
+        return ids2sources.get( sourceId );
+    }
+
+    public Period getPeriod( int periodId )
+    {
+        return ids2periods.get( periodId );
+    }
+
+    public ValidationRule getValidationRule( int ruleId )
+    {
+        return ids2rules.get( ruleId );
+    }
+
+
+
 }

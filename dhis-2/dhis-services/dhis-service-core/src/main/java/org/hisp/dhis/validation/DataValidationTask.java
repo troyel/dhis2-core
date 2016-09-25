@@ -40,7 +40,6 @@ import org.hisp.dhis.dataelement.DataElementCategoryService;
 import org.hisp.dhis.dataelement.DataElementOperand;
 import org.hisp.dhis.datavalue.DataValueService;
 import org.hisp.dhis.datavalue.DataValueStore;
-import org.hisp.dhis.datavalue.hibernate.HibernateDataValueStore;
 import org.hisp.dhis.expression.Expression;
 import org.hisp.dhis.expression.ExpressionService;
 import org.hisp.dhis.expression.Operator;
@@ -51,10 +50,8 @@ import org.hisp.dhis.period.PeriodService;
 import org.hisp.dhis.period.PeriodType;
 import org.hisp.dhis.system.util.MathUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.support.rowset.SqlRowSet;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
@@ -104,10 +101,20 @@ public class DataValidationTask
 
     private ValidationRunContext context;
 
+    Set<ValidationRule> skipRules;
+
     public void init( OrganisationUnitExtended sourceX, ValidationRunContext context )
     {
         this.sourceX = sourceX;
         this.context = context;
+        this.skipRules = null;
+    }
+
+    public void init( OrganisationUnitExtended sourceX, ValidationRunContext context, Set<ValidationRule> skipRules )
+    {
+        this.sourceX = sourceX;
+        this.context = context;
+        this.skipRules = skipRules;
     }
 
     /**
@@ -168,7 +175,7 @@ public class DataValidationTask
 
                     for ( ValidationRule rule : rules )
                     {
-                        if (rulesRun.contains( rule ) ) continue;
+                        if (skipRules.contains( rule ) ) continue;
                         else if ( evaluateValidationCheck( currentValueMap, lastUpdatedMap, rule ) )
                         {
                             int n_years = rule.getAnnualSampleCount() == null ? 0 : rule.getAnnualSampleCount();
@@ -283,17 +290,6 @@ public class DataValidationTask
                 Collection<DataElement> elements = rule.getCurrentDataElements();
 
                 if ( elements == null || elements.size() == 0 || sourceDataElements.containsAll( elements ) )
-                {
-                    periodTypeRules.add( rule );
-                }
-            }
-            else
-            {
-                // For surveillance-type rules, include only rules for this
-                // organisation's unit level.
-                // The organisation may not be configured for the data elements
-                // because they could be aggregated from a lower level.
-                if ( rule.getOrganisationUnitLevel() == sourceX.getLevel() )
                 {
                     periodTypeRules.add( rule );
                 }
